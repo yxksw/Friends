@@ -13,6 +13,11 @@ jobs:
             contents: write
 
         steps:
+            - name: Debug labels
+              run: |
+                  echo "Issue labels:"
+                  echo "${{ toJSON(github.event.issue.labels) }}"
+
             - name: Checkout repository
               uses: actions/checkout@v4
 
