@@ -9,9 +9,7 @@ on:
 jobs:
   process-friend-link:
     runs-on: ubuntu-latest
-    if: >
-      (github.event_name == 'issues' && github.event.action == 'closed' && contains(github.event.issue.labels.*.name, '友链申请')) ||
-      (github.event_name == 'issues' && github.event.action == 'labeled' && github.event.label.name == '推荐' && contains(github.event.issue.labels.*.name, '友链申请'))
+    if: github.event_name == 'issues' && ((github.event.action == 'closed' && contains(github.event.issue.labels.*.name, '友链申请')) || (github.event.action == 'labeled' && github.event.label.name == '推荐' && contains(github.event.issue.labels.*.name, '友链申请')))
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -21,33 +19,38 @@ jobs:
         with:
           node-version: '18'
 
+      - name: Install jq
+        run: sudo apt-get update && sudo apt-get install -y jq
+
       - name: Process friend link request
         run: |
+          set -e
+          
+          # Extract issue body
+          ISSUE_BODY=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" "${{ github.event.issue.url }}" | jq -r '.body')
+          
+          # Extract form data
+          NAME=$(echo "$ISSUE_BODY" | grep -A 1 "网站名称" | tail -n 1 | xargs)
+          DESCRIPTION=$(echo "$ISSUE_BODY" | grep -A 1 "网站描述" | tail -n 1 | xargs)
+          URL=$(echo "$ISSUE_BODY" | grep -A 1 "网站链接" | tail -n 1 | xargs)
+          AVATAR=$(echo "$ISSUE_BODY" | grep -A 1 "头像链接" | tail -n 1 | xargs)
+          
           if [ "${{ github.event.action }}" == "closed" ]; then
-            # Extract issue body
-            ISSUE_BODY=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" "${{ github.event.issue.url }}" | jq -r '.body')
-            
-            # Extract form data
-            NAME=$(echo "$ISSUE_BODY" | grep -A 1 "网站名称" | tail -n 1 | tr -d '[:space:]')
-            DESCRIPTION=$(echo "$ISSUE_BODY" | grep -A 1 "网站描述" | tail -n 1 | tr -d '[:space:]')
-            URL=$(echo "$ISSUE_BODY" | grep -A 1 "网站链接" | tail -n 1 | tr -d '[:space:]')
-            AVATAR=$(echo "$ISSUE_BODY" | grep -A 1 "头像链接" | tail -n 1 | tr -d '[:space:]')
-            
             # Validate URL and avatar
             URL_VALID=0
             AVATAR_VALID=0
             
             for i in {1..3}; do
               if [ $URL_VALID -eq 0 ]; then
-                curl -s -o /dev/null -w "%{http_code}" "$URL" | grep -q "200"
-                if [ $? -eq 0 ]; then
+                HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "$URL" || echo "000")
+                if [ "$HTTP_CODE" == "200" ]; then
                   URL_VALID=1
                 fi
               fi
               
               if [ $AVATAR_VALID -eq 0 ]; then
-                curl -s -o /dev/null -w "%{http_code}" "$AVATAR" | grep -q "200"
-                if [ $? -eq 0 ]; then
+                HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "$AVATAR" || echo "000")
+                if [ "$HTTP_CODE" == "200" ]; then
                   AVATAR_VALID=1
                 fi
               fi
@@ -71,29 +74,47 @@ jobs:
                 ERROR_MSG="$ERROR_MSG\n- 头像链接 (Avatar) 无法访问"
               fi
               
-              curl -s -X POST -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" -H "Content-Type: application/json" "${{ github.event.issue.url }}/comments" -d '{"body": "'"$ERROR_MSG"'"}'
+              jq -n --arg body "$ERROR_MSG" '{"body": $body}' | curl -s -X POST -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" -H "Content-Type: application/json" "${{ github.event.issue.url }}/comments" -d @-
             else
-              # Add friend link to the top of the list
+              # Add friend link using Node.js script for safety
               TODAY=$(date +"%Y-%m-%d")
-              NEW_LINK=$(cat << EOF
-    {
-        name: "$NAME",
-        description: "$DESCRIPTION",
-        url: "$URL",
-        avatar: "$AVATAR",
-        addDate: "$TODAY"
-    },
-EOF
-              )
               
-              # Read current friends.ts
-              CURRENT_CONTENT=$(cat data/friends.ts)
+              node << 'NODE_SCRIPT'
+              const fs = require('fs');
+              const path = 'data/friends.ts';
               
-              # Insert new link after the opening bracket
-              NEW_CONTENT=$(echo "$CURRENT_CONTENT" | sed -e "/export const FRIEND_LINKS: FriendLink\[\] = \[/,/\]/c\export const FRIEND_LINKS: FriendLink\[\] = [\n$NEW_LINK" -e "/$NEW_LINK/,/\]/c\$NEW_LINK\n\];")
+              let content = fs.readFileSync(path, 'utf8');
               
-              # Write back to friends.ts
-              echo "$NEW_CONTENT" > data/friends.ts
+              const newLink = {
+                name: process.env.NAME,
+                description: process.env.DESCRIPTION,
+                url: process.env.URL,
+                avatar: process.env.AVATAR,
+                addDate: process.env.TODAY
+              };
+              
+              // Find the array and insert new link at the beginning
+              const arrayMatch = content.match(/(export const FRIEND_LINKS: FriendLink\[\] = \[)([\s\S]*?)(\];)/);
+              if (arrayMatch) {
+                const existingContent = arrayMatch[2].trim();
+                const separator = existingContent ? '\n    ' : '';
+                const newEntry = `    ${JSON.stringify(newLink).replace(/"/g, '').replace(/:/g, ': ').replace(/,/g, ', ')}`;
+                
+                let newArrayContent;
+                if (existingContent) {
+                  newArrayContent = `${newEntry},\n    ${existingContent}`;
+                } else {
+                  newArrayContent = newEntry;
+                }
+                
+                content = content.replace(
+                  /export const FRIEND_LINKS: FriendLink\[\] = \[[\s\S]*?\];/,
+                  `export const FRIEND_LINKS: FriendLink[] = [\n${newArrayContent}\n];`
+                );
+                
+                fs.writeFileSync(path, content);
+              }
+              NODE_SCRIPT
               
               # Commit and push changes
               git config --global user.name "github-actions[bot]"
@@ -102,17 +123,22 @@ EOF
               git commit -m "Add new friend link: $NAME"
               git push
             fi
+            
           elif [ "${{ github.event.action }}" == "labeled" ] && [ "${{ github.event.label.name }}" == "推荐" ]; then
-            # Extract issue body to get the friend link info
-            ISSUE_BODY=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" "${{ github.event.issue.url }}" | jq -r '.body')
-            NAME=$(echo "$ISSUE_BODY" | grep -A 1 "网站名称" | tail -n 1 | tr -d '[:space:]')
+            # Mark as recommended using Node.js
+            node << 'NODE_SCRIPT'
+            const fs = require('fs');
+            const path = 'data/friends.ts';
             
-            # Add recommended field to the friend link
-            CURRENT_CONTENT=$(cat data/friends.ts)
-            NEW_CONTENT=$(echo "$CURRENT_CONTENT" | sed "s/name: \"$NAME\",/name: \"$NAME\",\n        recommended: true/" | head -100)
+            let content = fs.readFileSync(path, 'utf8');
+            const name = process.env.NAME;
             
-            # Write back to friends.ts
-            echo "$NEW_CONTENT" > data/friends.ts
+            // Find the entry with matching name and add recommended field
+            const regex = new RegExp(`(name: "${name.replace(/[.*+?^${}()|[\\]\\]/g, '\\\\$&')}",)`, 'g');
+            content = content.replace(regex, '$1\n        recommended: true,');
+            
+            fs.writeFileSync(path, content);
+            NODE_SCRIPT
             
             # Commit and push changes
             git config --global user.name "github-actions[bot]"
@@ -121,14 +147,16 @@ EOF
             git commit -m "Mark friend link as recommended: $NAME"
             git push
           fi
+        env:
+          NAME: ${{ env.NAME }}
+          DESCRIPTION: ${{ env.DESCRIPTION }}
+          URL: ${{ env.URL }}
+          AVATAR: ${{ env.AVATAR }}
+          TODAY: ${{ env.TODAY }}
 
   process-sponsor:
     runs-on: ubuntu-latest
-    if: >
-      github.event_name == 'issues' && 
-      github.event.action == 'labeled' && 
-      github.event.label.name == '确认' && 
-      contains(github.event.issue.labels.*.name, '捐赠添加')
+    if: github.event_name == 'issues' && github.event.action == 'labeled' && github.event.label.name == '确认' && contains(github.event.issue.labels.*.name, '捐赠添加')
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -138,17 +166,22 @@ EOF
         with:
           node-version: '18'
 
+      - name: Install jq
+        run: sudo apt-get update && sudo apt-get install -y jq
+
       - name: Process sponsor request
         run: |
+          set -e
+          
           # Extract issue body
           ISSUE_BODY=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" "${{ github.event.issue.url }}" | jq -r '.body')
           
           # Extract form data
-          NAME=$(echo "$ISSUE_BODY" | grep -A 1 "捐赠人名称" | tail -n 1 | tr -d '[:space:]')
-          AVATAR=$(echo "$ISSUE_BODY" | grep -A 1 "头像链接" | tail -n 1 | tr -d '[:space:]')
-          WEBSITE=$(echo "$ISSUE_BODY" | grep -A 1 "网站链接" | tail -n 1 | tr -d '[:space:]')
-          DATE=$(echo "$ISSUE_BODY" | grep -A 1 "捐赠日期" | tail -n 1 | tr -d '[:space:]')
-          AMOUNT=$(echo "$ISSUE_BODY" | grep -A 1 "捐赠金额" | tail -n 1 | tr -d '[:space:]')
+          NAME=$(echo "$ISSUE_BODY" | grep -A 1 "捐赠人名称" | tail -n 1 | xargs)
+          AVATAR=$(echo "$ISSUE_BODY" | grep -A 1 "头像链接" | tail -n 1 | xargs)
+          WEBSITE=$(echo "$ISSUE_BODY" | grep -A 1 "网站链接" | tail -n 1 | xargs)
+          DATE=$(echo "$ISSUE_BODY" | grep -A 1 "捐赠日期" | tail -n 1 | xargs)
+          AMOUNT=$(echo "$ISSUE_BODY" | grep -A 1 "捐赠金额" | tail -n 1 | xargs)
           
           # Validate avatar and website URLs
           AVATAR_VALID=0
@@ -156,15 +189,15 @@ EOF
           
           for i in {1..3}; do
             if [ $AVATAR_VALID -eq 0 ]; then
-              curl -s -o /dev/null -w "%{http_code}" "$AVATAR" | grep -q "200"
-              if [ $? -eq 0 ]; then
+              HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "$AVATAR" || echo "000")
+              if [ "$HTTP_CODE" == "200" ]; then
                 AVATAR_VALID=1
               fi
             fi
             
             if [ $WEBSITE_VALID -eq 0 ]; then
-              curl -s -o /dev/null -w "%{http_code}" "$WEBSITE" | grep -q "200"
-              if [ $? -eq 0 ]; then
+              HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "$WEBSITE" || echo "000")
+              if [ "$HTTP_CODE" == "200" ]; then
                 WEBSITE_VALID=1
               fi
             fi
@@ -188,22 +221,34 @@ EOF
               ERROR_MSG="$ERROR_MSG\n- 网站链接 (Website) 无法访问"
             fi
             
-            curl -s -X POST -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" -H "Content-Type: application/json" "${{ github.event.issue.url }}/comments" -d '{"body": "'"$ERROR_MSG"'"}'
+            jq -n --arg body "$ERROR_MSG" '{"body": $body}' | curl -s -X POST -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" -H "Content-Type: application/json" "${{ github.event.issue.url }}/comments" -d @-
           else
-            # Add sponsor to the sponsors.json
-            NEW_SPONSOR=$(cat << EOF
-{
-	"name": "$NAME",
-	"avatar": "$AVATAR",
-	"website": "$WEBSITE",
-	"date": "$DATE",
-	"amount": "$AMOUNT"
-}
-EOF
-            )
+            # Add sponsor to sponsors.json using Node.js
+            node << 'NODE_SCRIPT'
+            const fs = require('fs');
+            const path = 'data/sponsors.json';
             
-            # Write new sponsor to sponsors.json
-            echo "$NEW_SPONSOR" > data/sponsors.json
+            const newSponsor = {
+              name: process.env.NAME,
+              avatar: process.env.AVATAR,
+              website: process.env.WEBSITE,
+              date: process.env.DATE,
+              amount: process.env.AMOUNT
+            };
+            
+            let sponsors = [];
+            if (fs.existsSync(path)) {
+              try {
+                sponsors = JSON.parse(fs.readFileSync(path, 'utf8'));
+                if (!Array.isArray(sponsors)) sponsors = [];
+              } catch (e) {
+                sponsors = [];
+              }
+            }
+            
+            sponsors.push(newSponsor);
+            fs.writeFileSync(path, JSON.stringify(sponsors, null, 2));
+            NODE_SCRIPT
             
             # Commit and push changes
             git config --global user.name "github-actions[bot]"
@@ -212,3 +257,9 @@ EOF
             git commit -m "Add new sponsor: $NAME"
             git push
           fi
+        env:
+          NAME: ${{ env.NAME }}
+          AVATAR: ${{ env.AVATAR }}
+          WEBSITE: ${{ env.WEBSITE }}
+          DATE: ${{ env.DATE }}
+          AMOUNT: ${{ env.AMOUNT }}
