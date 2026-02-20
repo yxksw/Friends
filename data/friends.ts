@@ -15,6 +15,7 @@ export const FRIEND_LINKS: FriendLink[] = [
         url: "https://blog.ljx.icu",
         avatar: "https://blog.ljx.icu/favicon.png",
         addDate: "2026-02-20",
+        recommended: true
     },
     {
         name: "纸鹿摸鱼处",
