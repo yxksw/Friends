@@ -17,13 +17,6 @@ export const FRIEND_LINKS: FriendLink[] = [
         addDate: "2026-02-20"
     },
     {
-        name: "梨尽兴",
-        description: "A place for peace",
-        url: "https://blog.ljx.icu",
-        avatar: "https://blog.ljx.icu/favicon.png",
-        addDate: "2026-02-20"
-    },
-    {
         name: "纸鹿摸鱼处",
         description: "纸鹿至麓不知路，支炉制露不止漉",
         url: "https://blog.zhilu.site/",
@@ -47,5 +40,4 @@ export const FRIEND_LINKS: FriendLink[] = [
         addDate: "2025-09-09",
         recommended: true
     },
-    // 在这里添加更多友链
 ];

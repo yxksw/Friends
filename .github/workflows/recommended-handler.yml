@@ -57,37 +57,39 @@ jobs:
                       const filePath = 'data/friends.ts';
 
                       let content = fs.readFileSync(filePath, 'utf8');
-
                       const lines = content.split('\n');
-                      let found = false;
                       let result = [];
                       let inTargetBlock = false;
-                      let blockDepth = 0;
+                      let hasRecommended = false;
+                      let found = false;
 
                       for (let i = 0; i < lines.length; i++) {
                         const line = lines[i];
-                        result.push(line);
                         
                         if (line.includes(`name: "${name}"`)) {
                           inTargetBlock = true;
-                          blockDepth = 0;
                         }
                         
                         if (inTargetBlock) {
-                          if (line.includes('{')) blockDepth++;
-                          if (line.includes('}')) blockDepth--;
-                          
                           if (line.includes(`url: "${url}"`)) {
                             found = true;
                           }
-                          
-                          if (found && line.includes('addDate:')) {
-                            const indent = line.match(/^(\s*)/)[1];
-                            result.push(`${indent}recommended: true`);
+                          if (line.includes('recommended:')) {
+                            hasRecommended = true;
+                          }
+                          if (line.includes('},') || line.includes('}')) {
+                            if (found && !hasRecommended) {
+                              const lastLine = result[result.length - 1];
+                              const indent = lastLine ? lastLine.match(/^(\s*)/)[1] : '        ';
+                              result.push(`${indent}recommended: true`);
+                            }
                             inTargetBlock = false;
                             found = false;
+                            hasRecommended = false;
                           }
                         }
+                        
+                        result.push(line);
                       }
 
                       fs.writeFileSync(filePath, result.join('\n'));

@@ -2,11 +2,11 @@ name: 友链申请处理
 
 on:
     issues:
-        types: [closed, labeled]
+        types: [closed]
 
 jobs:
     process-friend-link:
-        if: contains(github.event.issue.labels.*.name, '友链申请') && github.event.issue.state == 'closed'
+        if: contains(github.event.issue.labels.*.name, '友链申请')
         runs-on: ubuntu-latest
         permissions:
             issues: write
@@ -60,9 +60,21 @@ jobs:
                     echo "manual_approved=false" >> $GITHUB_OUTPUT
                   fi
 
+            - name: Check if already exists
+              id: check_exists
+              env:
+                  URL: ${{ steps.parse.outputs.url }}
+              run: |
+                  if grep -q "url: \"$URL\"" data/friends.ts 2>/dev/null; then
+                    echo "already_exists=true" >> $GITHUB_OUTPUT
+                    echo "Friend link already exists!"
+                  else
+                    echo "already_exists=false" >> $GITHUB_OUTPUT
+                  fi
+
             - name: Check URL accessibility
               id: check_url
-              if: steps.manual_check.outputs.manual_approved != 'true'
+              if: steps.manual_check.outputs.manual_approved != 'true' && steps.check_exists.outputs.already_exists != 'true'
               env:
                   URL: ${{ steps.parse.outputs.url }}
               run: |
@@ -93,7 +105,7 @@ jobs:
 
             - name: Check Avatar accessibility
               id: check_avatar
-              if: steps.manual_check.outputs.manual_approved != 'true'
+              if: steps.manual_check.outputs.manual_approved != 'true' && steps.check_exists.outputs.already_exists != 'true'
               env:
                   AVATAR: ${{ steps.parse.outputs.avatar }}
               run: |
@@ -126,11 +138,15 @@ jobs:
               id: validate
               run: |
                   MANUAL="${{ steps.manual_check.outputs.manual_approved }}"
+                  EXISTS="${{ steps.check_exists.outputs.already_exists }}"
                   NAME="${{ steps.parse.outputs.name }}"
                   URL="${{ steps.parse.outputs.url }}"
                   AVATAR="${{ steps.parse.outputs.avatar }}"
 
-                  if [ -z "$NAME" ] || [ -z "$URL" ] || [ -z "$AVATAR" ]; then
+                  if [ "$EXISTS" = "true" ]; then
+                    echo "validation_passed=false" >> $GITHUB_OUTPUT
+                    echo "failure_reason=友链已存在，跳过添加" >> $GITHUB_OUTPUT
+                  elif [ -z "$NAME" ] || [ -z "$URL" ] || [ -z "$AVATAR" ]; then
                     echo "validation_passed=false" >> $GITHUB_OUTPUT
                     echo "failure_reason=表单解析失败，缺少必填字段" >> $GITHUB_OUTPUT
                   elif [ "$MANUAL" = "true" ]; then
@@ -222,8 +238,20 @@ jobs:
                         body: `✅ 友链验证通过！已成功添加到友链列表。\n\n**网站名称**: ${name}\n**网站地址**: ${url}\n**添加日期**: ${date}`
                       });
 
+            - name: Comment already exists
+              if: steps.validate.outputs.failure_reason == '友链已存在，跳过添加'
+              uses: actions/github-script@v7
+              with:
+                  script: |
+                      await github.rest.issues.createComment({
+                        issue_number: context.issue.number,
+                        owner: context.repo.owner,
+                        repo: context.repo.repo,
+                        body: 'ℹ️ 该友链已存在于列表中，跳过重复添加。'
+                      });
+
             - name: Reopen issue on failure
-              if: steps.validate.outputs.validation_passed != 'true'
+              if: steps.validate.outputs.validation_passed == 'false' && steps.validate.outputs.failure_reason != '友链已存在，跳过添加'
               uses: actions/github-script@v7
               env:
                   REASON: ${{ steps.validate.outputs.failure_reason }}
