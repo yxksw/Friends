@@ -1,7 +1,8 @@
 name: 添加捐赠
 description: 添加捐赠信息到本站
 title: "捐赠添加："
-labels: ["捐赠添加"]
+labels:
+  - 捐赠添加
 body:
   - type: input
     id: name
@@ -31,7 +32,7 @@ body:
     attributes:
       label: 捐赠日期
       description: 捐赠的日期，格式为 YYYY-MM-DD
-      placeholder: 2026-02-20
+      placeholder: "2026-02-20"
     validations:
       required: true
   - type: input
@@ -39,6 +40,6 @@ body:
     attributes:
       label: 捐赠金额
       description: 捐赠的金额
-      placeholder: 19.80￥
+      placeholder: "19.80￥"
     validations:
       required: true
