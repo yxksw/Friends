@@ -1,7 +1,7 @@
 name: Process Issues
 
-on
-  issues::
+on:
+  issues:
     types:
       - closed
       - labeled
