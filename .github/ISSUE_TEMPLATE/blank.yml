@@ -1,0 +1,10 @@
+name: 空白议题
+description: 创建一个空白议题
+body:
+  - type: textarea
+    id: content
+    attributes:
+      label: 内容
+      description: 请描述您的问题或建议
+    validations:
+      required: true

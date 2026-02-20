@@ -1,38 +1,41 @@
-name: 添加捐赠
-description: 添加捐赠信息到本站
-title: "捐赠添加："
-labels:
-  - 捐赠添加
+name: 捐赠信息
+description: 提交捐赠信息
+labels: ["sponsor"]
 body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢您的捐赠！请填写以下信息以便我们记录。
   - type: input
     id: name
     attributes:
-      label: 捐赠人名称
-      description: 捐赠人的名称
+      label: 您的昵称
+      description: 希望显示的昵称
+      placeholder: "例如：张三"
     validations:
       required: true
   - type: input
     id: avatar
     attributes:
-      label: 头像链接
-      description: 捐赠人的头像URL
-      placeholder: https://example.com/avatar.png
+      label: 头像地址
+      description: 您的头像图片URL（推荐使用Gravatar或Cravatar）
+      placeholder: "例如：https://cn.cravatar.com/avatar/xxx?size=256"
     validations:
       required: true
   - type: input
     id: website
     attributes:
-      label: 网站链接
-      description: 捐赠人的网站URL
-      placeholder: https://example.com
+      label: 个人网站
+      description: 您的个人网站或博客地址
+      placeholder: "例如：https://blog.example.com"
     validations:
-      required: true
+      required: false
   - type: input
     id: date
     attributes:
       label: 捐赠日期
-      description: 捐赠的日期，格式为 YYYY-MM-DD
-      placeholder: "2026-02-20"
+      description: 捐赠的日期
+      placeholder: "例如：2025-01-01"
     validations:
       required: true
   - type: input
@@ -40,6 +43,6 @@ body:
     attributes:
       label: 捐赠金额
       description: 捐赠的金额
-      placeholder: "19.80￥"
+      placeholder: "例如：10.00￥"
     validations:
       required: true

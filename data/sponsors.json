@@ -1,7 +1,9 @@
-{
-	"name": "异飨客",
-	"avatar": "https://cn.cravatar.com/avatar/eb7277a11fa4dc00606e73afda41aeeb?size=256",
-    "website": "https://blog.314926.xyz",
-	"date": "2026-02-07",
-	"amount": "19.80￥"
-}
+[
+	{
+		"name": "异飨客",
+		"avatar": "https://cn.cravatar.com/avatar/eb7277a11fa4dc00606e73afda41aeeb?size=256",
+		"website": "https://blog.314926.xyz",
+		"date": "2026-02-07",
+		"amount": "19.80￥"
+	}
+]

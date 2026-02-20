@@ -1,35 +1,40 @@
-name: 申请友链
-description: 申请添加友链到本站
-title: "友链申请："
-labels: ["友链申请"]
+name: 友链申请
+description: 申请添加友情链接
+labels: ["friend-link"]
 body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢您申请友链！请填写以下信息。
   - type: input
     id: name
     attributes:
       label: 网站名称
-      description: 您的网站名称
+      description: 您的网站或博客名称
+      placeholder: "例如：我的博客"
     validations:
       required: true
-  - type: input
+  - type: textarea
     id: description
     attributes:
       label: 网站描述
-      description: 您的网站描述
+      description: 简短描述您的网站（一句话介绍）
+      placeholder: "例如：分享技术与生活的个人博客"
     validations:
       required: true
   - type: input
     id: url
     attributes:
-      label: 网站链接
+      label: 网站地址
       description: 您的网站URL
-      placeholder: https://example.com
+      placeholder: "例如：https://example.com"
     validations:
       required: true
   - type: input
     id: avatar
     attributes:
-      label: 头像链接
-      description: 您的网站头像URL
-      placeholder: https://example.com/avatar.png
+      label: 头像地址
+      description: 您的头像图片URL
+      placeholder: "例如：https://example.com/avatar.png"
     validations:
       required: true
