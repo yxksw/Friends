@@ -2,11 +2,11 @@ name: 友链申请处理
 
 on:
     issues:
-        types: [closed]
+        types: [closed, labeled]
 
 jobs:
     process-friend-link:
-        if: contains(github.event.issue.labels.*.name, '友链申请')
+        if: contains(github.event.issue.labels.*.name, '友链申请') && github.event.issue.state == 'closed'
         runs-on: ubuntu-latest
         permissions:
             issues: write
@@ -17,6 +17,7 @@ jobs:
               run: |
                   echo "Issue labels:"
                   echo "${{ toJSON(github.event.issue.labels) }}"
+                  echo "Issue state: ${{ github.event.issue.state }}"
 
             - name: Checkout repository
               uses: actions/checkout@v4
@@ -46,6 +47,7 @@ jobs:
 
             - name: Check URL accessibility
               id: check_url
+              if: "!contains(github.event.issue.labels.*.name, '手动通过')"
               run: |
                   URL="${{ steps.parse.outputs.url }}"
                   echo "Checking URL: $URL"
@@ -53,7 +55,11 @@ jobs:
                   SUCCESS=false
                   for i in 1 2 3; do
                     echo "Attempt $i..."
-                    HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --connect-timeout 15 --max-time 20 -L -H "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" "$URL" 2>/dev/null)
+                    HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --connect-timeout 15 --max-time 20 -L \
+                      -H "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" \
+                      -H "Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8" \
+                      -H "Accept-Language: zh-CN,zh;q=0.9,en;q=0.8" \
+                      "$URL" 2>/dev/null)
                     echo "HTTP Code: $HTTP_CODE"
                     
                     if [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 400 ]; then
@@ -78,6 +84,7 @@ jobs:
 
             - name: Check Avatar accessibility
               id: check_avatar
+              if: "!contains(github.event.issue.labels.*.name, '手动通过')"
               run: |
                   AVATAR="${{ steps.parse.outputs.avatar }}"
                   echo "Checking Avatar: $AVATAR"
@@ -85,7 +92,10 @@ jobs:
                   SUCCESS=false
                   for i in 1 2 3; do
                     echo "Attempt $i..."
-                    HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --connect-timeout 15 --max-time 20 -L -H "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" "$AVATAR" 2>/dev/null)
+                    HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --connect-timeout 15 --max-time 20 -L \
+                      -H "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" \
+                      -H "Accept: image/webp,image/apng,image/*,*/*;q=0.8" \
+                      "$AVATAR" 2>/dev/null)
                     echo "HTTP Code: $HTTP_CODE"
                     
                     if [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 400 ]; then
@@ -111,26 +121,31 @@ jobs:
             - name: Validate results
               id: validate
               run: |
-                  URL_OK="${{ steps.check_url.outputs.url_accessible }}"
-                  AVATAR_OK="${{ steps.check_avatar.outputs.avatar_accessible }}"
-
-                  if [ "$URL_OK" = "true" ] && [ "$AVATAR_OK" = "true" ]; then
+                  if [ "${{ contains(github.event.issue.labels.*.name, '手动通过') }}" = "true" ]; then
                     echo "validation_passed=true" >> $GITHUB_OUTPUT
+                    echo "Manual approval - skipping URL check"
                   else
-                    echo "validation_passed=false" >> $GITHUB_OUTPUT
+                    URL_OK="${{ steps.check_url.outputs.url_accessible }}"
+                    AVATAR_OK="${{ steps.check_avatar.outputs.avatar_accessible }}"
                     
-                    REASON=""
-                    if [ "$URL_OK" != "true" ]; then
-                      REASON="网站地址无法访问"
-                    fi
-                    if [ "$AVATAR_OK" != "true" ]; then
-                      if [ -n "$REASON" ]; then
-                        REASON="$REASON，"
+                    if [ "$URL_OK" = "true" ] && [ "$AVATAR_OK" = "true" ]; then
+                      echo "validation_passed=true" >> $GITHUB_OUTPUT
+                    else
+                      echo "validation_passed=false" >> $GITHUB_OUTPUT
+                      
+                      REASON=""
+                      if [ "$URL_OK" != "true" ]; then
+                        REASON="网站地址无法访问（可能是服务器限制了 GitHub IP，请尝试添加「手动通过」标签）"
                       fi
-                      REASON="${REASON}头像地址无法访问"
+                      if [ "$AVATAR_OK" != "true" ]; then
+                        if [ -n "$REASON" ]; then
+                          REASON="$REASON，"
+                        fi
+                        REASON="${REASON}头像地址无法访问"
+                      fi
+                      
+                      echo "failure_reason=$REASON" >> $GITHUB_OUTPUT
                     fi
-                    
-                    echo "failure_reason=$REASON" >> $GITHUB_OUTPUT
                   fi
 
             - name: Add friend link to file
@@ -215,5 +230,5 @@ jobs:
                         issue_number: context.issue.number,
                         owner: context.repo.owner,
                         repo: context.repo.repo,
-                        body: `❌ 友链验证失败！\n\n**失败原因**: ${reason}\n\n请检查您提交的链接是否正确，确保网站和头像都可以正常访问后，重新关闭此议题以再次触发验证。`
+                        body: `❌ 友链验证失败！\n\n**失败原因**: ${reason}\n\n请检查您提交的链接是否正确。如果确认链接无误，管理员可以添加「手动通过」标签后关闭议题。`
                       });
