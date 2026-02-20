@@ -13,43 +13,59 @@ jobs:
             contents: write
 
         steps:
-            - name: Debug labels
-              run: |
-                  echo "Issue labels:"
-                  echo "${{ toJSON(github.event.issue.labels) }}"
-                  echo "Issue state: ${{ github.event.issue.state }}"
-
             - name: Checkout repository
               uses: actions/checkout@v4
 
             - name: Parse issue content
               id: parse
-              env:
-                  ISSUE_BODY: ${{ github.event.issue.body }}
+              uses: actions/github-script@v7
+              with:
+                  script: |
+                      const body = context.payload.issue.body;
+
+                      function extractValue(text, label) {
+                        const regex = new RegExp(`###\\s*${label}[\\s\\S]*?\\n\\s*(.+?)(?:\\n|$)`, 'i');
+                        const match = text.match(regex);
+                        if (match) {
+                          let value = match[1].trim();
+                          value = value.replace(/^`+|`+$/g, '');
+                          return value;
+                        }
+                        return '';
+                      }
+
+                      const name = extractValue(body, '网站名称');
+                      const description = extractValue(body, '网站描述');
+                      const url = extractValue(body, '网站地址');
+                      const avatar = extractValue(body, '头像地址');
+
+                      console.log('Parsed values:');
+                      console.log('  Name:', name);
+                      console.log('  Description:', description);
+                      console.log('  URL:', url);
+                      console.log('  Avatar:', avatar);
+
+                      core.setOutput('name', name);
+                      core.setOutput('description', description);
+                      core.setOutput('url', url);
+                      core.setOutput('avatar', avatar);
+
+            - name: Check if manually approved
+              id: manual_check
               run: |
-                  echo "Parsing issue content..."
-
-                  NAME=$(echo "$ISSUE_BODY" | grep -A1 "### 网站名称" | tail -n1 | sed 's/^[[:space:]]*//;s/[[:space:]]*$//;s/^`//;s/`$//')
-                  DESCRIPTION=$(echo "$ISSUE_BODY" | grep -A1 "### 网站描述" | tail -n1 | sed 's/^[[:space:]]*//;s/[[:space:]]*$//;s/^`//;s/`$//')
-                  URL=$(echo "$ISSUE_BODY" | grep -A1 "### 网站地址" | tail -n1 | sed 's/^[[:space:]]*//;s/[[:space:]]*$//;s/^`//;s/`$//')
-                  AVATAR=$(echo "$ISSUE_BODY" | grep -A1 "### 头像地址" | tail -n1 | sed 's/^[[:space:]]*//;s/[[:space:]]*$//;s/^`//;s/`$//')
-
-                  echo "name=$NAME" >> $GITHUB_OUTPUT
-                  echo "description=$DESCRIPTION" >> $GITHUB_OUTPUT
-                  echo "url=$URL" >> $GITHUB_OUTPUT
-                  echo "avatar=$AVATAR" >> $GITHUB_OUTPUT
-
-                  echo "Parsed values:"
-                  echo "  Name: $NAME"
-                  echo "  Description: $DESCRIPTION"
-                  echo "  URL: $URL"
-                  echo "  Avatar: $AVATAR"
+                  if [ "${{ contains(github.event.issue.labels.*.name, '手动通过') }}" = "true" ]; then
+                    echo "manual_approved=true" >> $GITHUB_OUTPUT
+                    echo "Manual approval detected!"
+                  else
+                    echo "manual_approved=false" >> $GITHUB_OUTPUT
+                  fi
 
             - name: Check URL accessibility
               id: check_url
-              if: "!contains(github.event.issue.labels.*.name, '手动通过')"
+              if: steps.manual_check.outputs.manual_approved != 'true'
+              env:
+                  URL: ${{ steps.parse.outputs.url }}
               run: |
-                  URL="${{ steps.parse.outputs.url }}"
                   echo "Checking URL: $URL"
 
                   SUCCESS=false
@@ -58,20 +74,13 @@ jobs:
                     HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --connect-timeout 15 --max-time 20 -L \
                       -H "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" \
                       -H "Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8" \
-                      -H "Accept-Language: zh-CN,zh;q=0.9,en;q=0.8" \
                       "$URL" 2>/dev/null)
                     echo "HTTP Code: $HTTP_CODE"
                     
                     if [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 400 ]; then
-                      echo "URL is accessible on attempt $i (HTTP $HTTP_CODE)"
+                      echo "URL is accessible on attempt $i"
                       SUCCESS=true
                       break
-                    elif [ "$HTTP_CODE" -ge 400 ] && [ "$HTTP_CODE" -lt 500 ]; then
-                      echo "Client error (HTTP $HTTP_CODE)"
-                    elif [ "$HTTP_CODE" -ge 500 ]; then
-                      echo "Server error (HTTP $HTTP_CODE)"
-                    else
-                      echo "Connection failed or timeout"
                     fi
                     sleep 3
                   done
@@ -84,9 +93,10 @@ jobs:
 
             - name: Check Avatar accessibility
               id: check_avatar
-              if: "!contains(github.event.issue.labels.*.name, '手动通过')"
+              if: steps.manual_check.outputs.manual_approved != 'true'
+              env:
+                  AVATAR: ${{ steps.parse.outputs.avatar }}
               run: |
-                  AVATAR="${{ steps.parse.outputs.avatar }}"
                   echo "Checking Avatar: $AVATAR"
 
                   SUCCESS=false
@@ -99,15 +109,9 @@ jobs:
                     echo "HTTP Code: $HTTP_CODE"
                     
                     if [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 400 ]; then
-                      echo "Avatar is accessible on attempt $i (HTTP $HTTP_CODE)"
+                      echo "Avatar is accessible on attempt $i"
                       SUCCESS=true
                       break
-                    elif [ "$HTTP_CODE" -ge 400 ] && [ "$HTTP_CODE" -lt 500 ]; then
-                      echo "Client error (HTTP $HTTP_CODE)"
-                    elif [ "$HTTP_CODE" -ge 500 ]; then
-                      echo "Server error (HTTP $HTTP_CODE)"
-                    else
-                      echo "Connection failed or timeout"
                     fi
                     sleep 3
                   done
@@ -121,7 +125,15 @@ jobs:
             - name: Validate results
               id: validate
               run: |
-                  if [ "${{ contains(github.event.issue.labels.*.name, '手动通过') }}" = "true" ]; then
+                  MANUAL="${{ steps.manual_check.outputs.manual_approved }}"
+                  NAME="${{ steps.parse.outputs.name }}"
+                  URL="${{ steps.parse.outputs.url }}"
+                  AVATAR="${{ steps.parse.outputs.avatar }}"
+
+                  if [ -z "$NAME" ] || [ -z "$URL" ] || [ -z "$AVATAR" ]; then
+                    echo "validation_passed=false" >> $GITHUB_OUTPUT
+                    echo "failure_reason=表单解析失败，缺少必填字段" >> $GITHUB_OUTPUT
+                  elif [ "$MANUAL" = "true" ]; then
                     echo "validation_passed=true" >> $GITHUB_OUTPUT
                     echo "Manual approval - skipping URL check"
                   else
@@ -135,7 +147,7 @@ jobs:
                       
                       REASON=""
                       if [ "$URL_OK" != "true" ]; then
-                        REASON="网站地址无法访问（可能是服务器限制了 GitHub IP，请尝试添加「手动通过」标签）"
+                        REASON="网站地址无法访问（可能是服务器限制了 GitHub IP，请添加「手动通过」标签）"
                       fi
                       if [ "$AVATAR_OK" != "true" ]; then
                         if [ -n "$REASON" ]; then
