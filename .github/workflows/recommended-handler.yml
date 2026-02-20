@@ -6,7 +6,7 @@ on:
 
 jobs:
     add-recommended:
-        if: github.event.label.name == 'recommended' && contains(github.event.issue.labels.*.name, '友链申请') && github.event.issue.state == 'closed'
+        if: github.event.label.name == 'recommended' && contains(github.event.issue.body, '网站名称') && contains(github.event.issue.body, '网站地址') && github.event.issue.state == 'closed'
         runs-on: ubuntu-latest
         permissions:
             issues: read

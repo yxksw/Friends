@@ -1,6 +1,5 @@
 name: 申请友链
 description: 申请添加友情链接
-labels: ["友链申请"]
 body:
   - type: markdown
     attributes:

@@ -1,6 +1,5 @@
 name: 赞助名单
 description: 申请添加到赞助名单
-labels: ["赞助申请"]
 body:
   - type: markdown
     attributes:

@@ -6,7 +6,7 @@ on:
 
 jobs:
     process-friend-link:
-        if: contains(github.event.issue.labels.*.name, '友链申请')
+        if: contains(github.event.issue.body, '网站名称') && contains(github.event.issue.body, '网站地址')
         runs-on: ubuntu-latest
         permissions:
             issues: write
@@ -201,7 +201,7 @@ jobs:
                       print "        description: \"" desc "\","
                       print "        url: \"" url "\","
                       print "        avatar: \"" avatar "\","
-                      print "        addDate: \"" date "\""
+                      print "        addDate: \"" date "\","
                       print "    },"
                       next
                   }
