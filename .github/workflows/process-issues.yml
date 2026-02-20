@@ -9,7 +9,7 @@ on:
 jobs:
   process-friend-link:
     runs-on: ubuntu-latest
-    if: |
+    if: >
       (github.event_name == 'issues' && github.event.action == 'closed' && contains(github.event.issue.labels.*.name, '友链申请')) ||
       (github.event_name == 'issues' && github.event.action == 'labeled' && github.event.label.name == '推荐' && contains(github.event.issue.labels.*.name, '友链申请'))
     steps:
@@ -124,7 +124,7 @@ EOF
 
   process-sponsor:
     runs-on: ubuntu-latest
-    if: |
+    if: >
       github.event_name == 'issues' && 
       github.event.action == 'labeled' && 
       github.event.label.name == '确认' && 
