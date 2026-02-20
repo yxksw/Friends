@@ -1,8 +1,2 @@
-blank_issues_enabled: false
-contact_links:
-  - name: 友链申请
-    url: https://github.com/yxksw/Friends/issues/new?template=friend-link.yml
-    about: 申请添加友情链接
-  - name: 捐赠信息
-    url: https://github.com/yxksw/Friends/issues/new?template=sponsor.yml
-    about: 提交捐赠信息
+blank_issues_enabled: true
+contact_links: []

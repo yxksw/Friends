@@ -1,0 +1,196 @@
+name: 友链申请处理
+
+on:
+    issues:
+        types: [closed]
+
+jobs:
+    process-friend-link:
+        if: contains(github.event.issue.labels.*.name, '友链申请')
+        runs-on: ubuntu-latest
+        permissions:
+            issues: write
+            contents: write
+
+        steps:
+            - name: Checkout repository
+              uses: actions/checkout@v4
+
+            - name: Parse issue content
+              id: parse
+              env:
+                  ISSUE_BODY: ${{ github.event.issue.body }}
+              run: |
+                  echo "Parsing issue content..."
+
+                  NAME=$(echo "$ISSUE_BODY" | grep -A1 "### 网站名称" | tail -n1 | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+                  DESCRIPTION=$(echo "$ISSUE_BODY" | grep -A1 "### 网站描述" | tail -n1 | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+                  URL=$(echo "$ISSUE_BODY" | grep -A1 "### 网站地址" | tail -n1 | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+                  AVATAR=$(echo "$ISSUE_BODY" | grep -A1 "### 头像地址" | tail -n1 | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+
+                  echo "name=$NAME" >> $GITHUB_OUTPUT
+                  echo "description=$DESCRIPTION" >> $GITHUB_OUTPUT
+                  echo "url=$URL" >> $GITHUB_OUTPUT
+                  echo "avatar=$AVATAR" >> $GITHUB_OUTPUT
+
+                  echo "Parsed values:"
+                  echo "  Name: $NAME"
+                  echo "  Description: $DESCRIPTION"
+                  echo "  URL: $URL"
+                  echo "  Avatar: $AVATAR"
+
+            - name: Check URL accessibility
+              id: check_url
+              run: |
+                  URL="${{ steps.parse.outputs.url }}"
+                  echo "Checking URL: $URL"
+
+                  SUCCESS=false
+                  for i in 1 2 3; do
+                    echo "Attempt $i..."
+                    if curl -sSf --connect-timeout 10 --max-time 15 -L "$URL" -o /dev/null 2>/dev/null; then
+                      echo "URL is accessible on attempt $i"
+                      SUCCESS=true
+                      break
+                    fi
+                    sleep 2
+                  done
+
+                  if [ "$SUCCESS" = true ]; then
+                    echo "url_accessible=true" >> $GITHUB_OUTPUT
+                  else
+                    echo "url_accessible=false" >> $GITHUB_OUTPUT
+                  fi
+
+            - name: Check Avatar accessibility
+              id: check_avatar
+              run: |
+                  AVATAR="${{ steps.parse.outputs.avatar }}"
+                  echo "Checking Avatar: $AVATAR"
+
+                  SUCCESS=false
+                  for i in 1 2 3; do
+                    echo "Attempt $i..."
+                    if curl -sSf --connect-timeout 10 --max-time 15 -L "$AVATAR" -o /dev/null 2>/dev/null; then
+                      echo "Avatar is accessible on attempt $i"
+                      SUCCESS=true
+                      break
+                    fi
+                    sleep 2
+                  done
+
+                  if [ "$SUCCESS" = true ]; then
+                    echo "avatar_accessible=true" >> $GITHUB_OUTPUT
+                  else
+                    echo "avatar_accessible=false" >> $GITHUB_OUTPUT
+                  fi
+
+            - name: Validate results
+              id: validate
+              run: |
+                  URL_OK="${{ steps.check_url.outputs.url_accessible }}"
+                  AVATAR_OK="${{ steps.check_avatar.outputs.avatar_accessible }}"
+
+                  if [ "$URL_OK" = "true" ] && [ "$AVATAR_OK" = "true" ]; then
+                    echo "validation_passed=true" >> $GITHUB_OUTPUT
+                  else
+                    echo "validation_passed=false" >> $GITHUB_OUTPUT
+                    
+                    REASON=""
+                    if [ "$URL_OK" != "true" ]; then
+                      REASON="网站地址无法访问"
+                    fi
+                    if [ "$AVATAR_OK" != "true" ]; then
+                      if [ -n "$REASON" ]; then
+                        REASON="$REASON，"
+                      fi
+                      REASON="${REASON}头像地址无法访问"
+                    fi
+                    
+                    echo "failure_reason=$REASON" >> $GITHUB_OUTPUT
+                  fi
+
+            - name: Add friend link to file
+              if: steps.validate.outputs.validation_passed == 'true'
+              env:
+                  NAME: ${{ steps.parse.outputs.name }}
+                  DESCRIPTION: ${{ steps.parse.outputs.description }}
+                  URL: ${{ steps.parse.outputs.url }}
+                  AVATAR: ${{ steps.parse.outputs.avatar }}
+              run: |
+                  ADD_DATE=$(date +%Y-%m-%d)
+
+                  echo "Adding friend link..."
+                  echo "  Name: $NAME"
+                  echo "  URL: $URL"
+                  echo "  Date: $ADD_DATE"
+
+                  FILE_PATH="data/friends.ts"
+
+                  awk -v name="$NAME" -v desc="$DESCRIPTION" -v url="$URL" -v avatar="$AVATAR" -v date="$ADD_DATE" '
+                  /^export const FRIEND_LINKS: FriendLink\[\] = \[$/ {
+                      print $0
+                      print "    {"
+                      print "        name: \"" name "\","
+                      print "        description: \"" desc "\","
+                      print "        url: \"" url "\","
+                      print "        avatar: \"" avatar "\","
+                      print "        addDate: \"" date "\""
+                      print "    },"
+                      next
+                  }
+                  { print }
+                  ' "$FILE_PATH" > "$FILE_PATH.tmp" && mv "$FILE_PATH.tmp" "$FILE_PATH"
+
+                  echo "Friend link added successfully!"
+
+            - name: Commit changes
+              if: steps.validate.outputs.validation_passed == 'true'
+              run: |
+                  git config --local user.email "github-actions[bot]@users.noreply.github.com"
+                  git config --local user.name "github-actions[bot]"
+                  git add data/friends.ts
+                  git commit -m "添加友链: ${{ steps.parse.outputs.name }}"
+                  git push
+
+            - name: Comment success
+              if: steps.validate.outputs.validation_passed == 'true'
+              uses: actions/github-script@v7
+              env:
+                  NAME: ${{ steps.parse.outputs.name }}
+                  URL: ${{ steps.parse.outputs.url }}
+              with:
+                  script: |
+                      const name = process.env.NAME;
+                      const url = process.env.URL;
+                      const date = new Date().toISOString().split('T')[0];
+
+                      await github.rest.issues.createComment({
+                        issue_number: context.issue.number,
+                        owner: context.repo.owner,
+                        repo: context.repo.repo,
+                        body: `✅ 友链验证通过！已成功添加到友链列表。\n\n**网站名称**: ${name}\n**网站地址**: ${url}\n**添加日期**: ${date}`
+                      });
+
+            - name: Reopen issue on failure
+              if: steps.validate.outputs.validation_passed != 'true'
+              uses: actions/github-script@v7
+              env:
+                  REASON: ${{ steps.validate.outputs.failure_reason }}
+              with:
+                  script: |
+                      const reason = process.env.REASON;
+
+                      await github.rest.issues.update({
+                        owner: context.repo.owner,
+                        repo: context.repo.repo,
+                        issue_number: context.issue.number,
+                        state: 'open'
+                      });
+
+                      await github.rest.issues.createComment({
+                        issue_number: context.issue.number,
+                        owner: context.repo.owner,
+                        repo: context.repo.repo,
+                        body: `❌ 友链验证失败！\n\n**失败原因**: ${reason}\n\n请检查您提交的链接是否正确，确保网站和头像都可以正常访问后，重新关闭此议题以再次触发验证。`
+                      });

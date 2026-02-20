@@ -1,0 +1,48 @@
+name: 赞助名单
+description: 申请添加到赞助名单
+labels: ["赞助申请"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢您的赞助！请填写以下信息。
+  - type: input
+    id: name
+    attributes:
+      label: 名称
+      description: 您的名称或昵称
+      placeholder: "例如：异飨客"
+    validations:
+      required: true
+  - type: input
+    id: avatar
+    attributes:
+      label: 头像地址
+      description: 您的头像图片URL
+      placeholder: "例如：https://cn.cravatar.com/avatar/xxx?size=256"
+    validations:
+      required: true
+  - type: input
+    id: website
+    attributes:
+      label: 网站地址
+      description: 您的网站URL（可选）
+      placeholder: "例如：https://blog.314926.xyz"
+    validations:
+      required: false
+  - type: input
+    id: date
+    attributes:
+      label: 赞助日期
+      description: 赞助日期
+      placeholder: "例如：2026-02-07"
+    validations:
+      required: true
+  - type: input
+    id: amount
+    attributes:
+      label: 赞助金额
+      description: 赞助金额
+      placeholder: "例如：19.80￥"
+    validations:
+      required: true

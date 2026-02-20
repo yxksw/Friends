@@ -1,0 +1,90 @@
+name: 赞助名单处理
+
+on:
+  issues:
+    types: [closed, labeled]
+
+jobs:
+  process-sponsor:
+    if: contains(github.event.issue.labels.*.name, '赞助申请') && contains(github.event.issue.labels.*.name, '通过') && github.event.issue.state == 'closed'
+    runs-on: ubuntu-latest
+    permissions:
+      issues: read
+      contents: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Parse issue content
+        id: parse
+        env:
+          ISSUE_BODY: ${{ github.event.issue.body }}
+        run: |
+          echo "Parsing sponsor content..."
+          
+          NAME=$(echo "$ISSUE_BODY" | grep -A1 "### 名称" | tail -n1 | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+          AVATAR=$(echo "$ISSUE_BODY" | grep -A1 "### 头像地址" | tail -n1 | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+          WEBSITE=$(echo "$ISSUE_BODY" | grep -A1 "### 网站地址" | tail -n1 | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+          DATE=$(echo "$ISSUE_BODY" | grep -A1 "### 赞助日期" | tail -n1 | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+          AMOUNT=$(echo "$ISSUE_BODY" | grep -A1 "### 赞助金额" | tail -n1 | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+          
+          echo "name=$NAME" >> $GITHUB_OUTPUT
+          echo "avatar=$AVATAR" >> $GITHUB_OUTPUT
+          echo "website=$WEBSITE" >> $GITHUB_OUTPUT
+          echo "date=$DATE" >> $GITHUB_OUTPUT
+          echo "amount=$AMOUNT" >> $GITHUB_OUTPUT
+          
+          echo "Parsed values:"
+          echo "  Name: $NAME"
+          echo "  Avatar: $AVATAR"
+          echo "  Website: $WEBSITE"
+          echo "  Date: $DATE"
+          echo "  Amount: $AMOUNT"
+
+      - name: Update sponsors.json
+        run: |
+          NAME="${{ steps.parse.outputs.name }}"
+          AVATAR="${{ steps.parse.outputs.avatar }}"
+          WEBSITE="${{ steps.parse.outputs.website }}"
+          DATE="${{ steps.parse.outputs.date }}"
+          AMOUNT="${{ steps.parse.outputs.amount }}"
+          
+          FILE_PATH="data/sponsors.json"
+          
+          NEW_ENTRY=$(cat <<EOF
+          {
+            "name": "$NAME",
+            "avatar": "$AVATAR",
+            "website": "$WEBSITE",
+            "date": "$DATE",
+            "amount": "$AMOUNT"
+          }
+          EOF
+          )
+          
+          if [ -z "$WEBSITE" ]; then
+            NEW_ENTRY=$(cat <<EOF
+          {
+            "name": "$NAME",
+            "avatar": "$AVATAR",
+            "date": "$DATE",
+            "amount": "$AMOUNT"
+          }
+          EOF
+          )
+          fi
+          
+          EXISTING=$(cat "$FILE_PATH")
+          
+          echo "$EXISTING" | jq --argjson new "$NEW_ENTRY" '[$new] + .' > "$FILE_PATH"
+          
+          echo "Sponsor added successfully!"
+
+      - name: Commit changes
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          git add data/sponsors.json
+          git commit -m "添加赞助: ${{ steps.parse.outputs.name }}"
+          git push

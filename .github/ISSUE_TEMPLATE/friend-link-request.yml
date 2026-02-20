@@ -1,6 +1,6 @@
-name: 友链申请
+name: 申请友链
 description: 申请添加友情链接
-labels: ["friend-link"]
+labels: ["友链申请"]
 body:
   - type: markdown
     attributes:
@@ -10,16 +10,16 @@ body:
     id: name
     attributes:
       label: 网站名称
-      description: 您的网站或博客名称
-      placeholder: "例如：我的博客"
+      description: 您的网站名称
+      placeholder: "例如：纸鹿摸鱼处"
     validations:
       required: true
   - type: textarea
     id: description
     attributes:
       label: 网站描述
-      description: 简短描述您的网站（一句话介绍）
-      placeholder: "例如：分享技术与生活的个人博客"
+      description: 一句话介绍您的网站
+      placeholder: "例如：纸鹿至麓不知路，支炉制露不止漉"
     validations:
       required: true
   - type: input
@@ -27,7 +27,7 @@ body:
     attributes:
       label: 网站地址
       description: 您的网站URL
-      placeholder: "例如：https://example.com"
+      placeholder: "例如：https://blog.zhilu.site/"
     validations:
       required: true
   - type: input
@@ -35,6 +35,6 @@ body:
     attributes:
       label: 头像地址
       description: 您的头像图片URL
-      placeholder: "例如：https://example.com/avatar.png"
+      placeholder: "例如：https://www.zhilu.site/api/avatar.png"
     validations:
       required: true
