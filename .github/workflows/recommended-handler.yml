@@ -18,46 +18,80 @@ jobs:
 
             - name: Parse issue content
               id: parse
-              env:
-                  ISSUE_BODY: ${{ github.event.issue.body }}
-              run: |
-                  echo "Parsing issue content for recommended update..."
+              uses: actions/github-script@v7
+              with:
+                  script: |
+                      const body = context.payload.issue.body;
 
-                  NAME=$(echo "$ISSUE_BODY" | grep -A1 "### 网站名称" | tail -n1 | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
-                  URL=$(echo "$ISSUE_BODY" | grep -A1 "### 网站地址" | tail -n1 | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+                      function extractValue(text, label) {
+                        const regex = new RegExp(`###\\s*${label}[\\s\\S]*?\\n\\s*(.+?)(?:\\n|$)`, 'i');
+                        const match = text.match(regex);
+                        if (match) {
+                          let value = match[1].trim();
+                          value = value.replace(/^`+|`+$/g, '');
+                          return value;
+                        }
+                        return '';
+                      }
 
-                  echo "name=$NAME" >> $GITHUB_OUTPUT
-                  echo "url=$URL" >> $GITHUB_OUTPUT
+                      const name = extractValue(body, '网站名称');
+                      const url = extractValue(body, '网站地址');
 
-                  echo "Target friend link:"
-                  echo "  Name: $NAME"
-                  echo "  URL: $URL"
+                      console.log('Target friend link:');
+                      console.log('  Name:', name);
+                      console.log('  URL:', url);
+
+                      core.setOutput('name', name);
+                      core.setOutput('url', url);
 
             - name: Add recommended field
-              run: |
-                  NAME="${{ steps.parse.outputs.name }}"
-                  URL="${{ steps.parse.outputs.url }}"
-                  FILE_PATH="data/friends.ts"
+              uses: actions/github-script@v7
+              env:
+                  NAME: ${{ steps.parse.outputs.name }}
+                  URL: ${{ steps.parse.outputs.url }}
+              with:
+                  script: |
+                      const fs = require('fs');
+                      const name = process.env.NAME;
+                      const url = process.env.URL;
+                      const filePath = 'data/friends.ts';
 
-                  echo "Adding recommended: true to $NAME..."
+                      let content = fs.readFileSync(filePath, 'utf8');
 
-                  ESCAPED_NAME=$(echo "$NAME" | sed 's/[\/&]/\\&/g')
-                  ESCAPED_URL=$(echo "$URL" | sed 's/[\/&]/\\&/g')
+                      const lines = content.split('\n');
+                      let found = false;
+                      let result = [];
+                      let inTargetBlock = false;
+                      let blockDepth = 0;
 
-                  awk -v name="$NAME" -v url="$URL" '
-                  BEGIN { found = 0 }
-                  /name: ".*"/ && /"'"$NAME"'"/ { found = 1 }
-                  found && /url: ".*"/ && /"'"$URL"'"/ { found = 2 }
-                  found == 2 && /addDate:/ {
-                      print $0
-                      print "        recommended: true"
-                      found = 0
-                      next
-                  }
-                  { print }
-                  ' "$FILE_PATH" > "$FILE_PATH.tmp" && mv "$FILE_PATH.tmp" "$FILE_PATH"
+                      for (let i = 0; i < lines.length; i++) {
+                        const line = lines[i];
+                        result.push(line);
+                        
+                        if (line.includes(`name: "${name}"`)) {
+                          inTargetBlock = true;
+                          blockDepth = 0;
+                        }
+                        
+                        if (inTargetBlock) {
+                          if (line.includes('{')) blockDepth++;
+                          if (line.includes('}')) blockDepth--;
+                          
+                          if (line.includes(`url: "${url}"`)) {
+                            found = true;
+                          }
+                          
+                          if (found && line.includes('addDate:')) {
+                            const indent = line.match(/^(\s*)/)[1];
+                            result.push(`${indent}recommended: true`);
+                            inTargetBlock = false;
+                            found = false;
+                          }
+                        }
+                      }
 
-                  echo "Recommended field added!"
+                      fs.writeFileSync(filePath, result.join('\n'));
+                      console.log('Recommended field added!');
 
             - name: Commit changes
               run: |
