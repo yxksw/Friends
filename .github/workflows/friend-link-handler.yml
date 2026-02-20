@@ -53,12 +53,21 @@ jobs:
                   SUCCESS=false
                   for i in 1 2 3; do
                     echo "Attempt $i..."
-                    if curl -sSf --connect-timeout 10 --max-time 15 -L "$URL" -o /dev/null 2>/dev/null; then
-                      echo "URL is accessible on attempt $i"
+                    HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --connect-timeout 15 --max-time 20 -L -H "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" "$URL" 2>/dev/null)
+                    echo "HTTP Code: $HTTP_CODE"
+                    
+                    if [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 400 ]; then
+                      echo "URL is accessible on attempt $i (HTTP $HTTP_CODE)"
                       SUCCESS=true
                       break
+                    elif [ "$HTTP_CODE" -ge 400 ] && [ "$HTTP_CODE" -lt 500 ]; then
+                      echo "Client error (HTTP $HTTP_CODE)"
+                    elif [ "$HTTP_CODE" -ge 500 ]; then
+                      echo "Server error (HTTP $HTTP_CODE)"
+                    else
+                      echo "Connection failed or timeout"
                     fi
-                    sleep 2
+                    sleep 3
                   done
 
                   if [ "$SUCCESS" = true ]; then
@@ -76,12 +85,21 @@ jobs:
                   SUCCESS=false
                   for i in 1 2 3; do
                     echo "Attempt $i..."
-                    if curl -sSf --connect-timeout 10 --max-time 15 -L "$AVATAR" -o /dev/null 2>/dev/null; then
-                      echo "Avatar is accessible on attempt $i"
+                    HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --connect-timeout 15 --max-time 20 -L -H "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" "$AVATAR" 2>/dev/null)
+                    echo "HTTP Code: $HTTP_CODE"
+                    
+                    if [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 400 ]; then
+                      echo "Avatar is accessible on attempt $i (HTTP $HTTP_CODE)"
                       SUCCESS=true
                       break
+                    elif [ "$HTTP_CODE" -ge 400 ] && [ "$HTTP_CODE" -lt 500 ]; then
+                      echo "Client error (HTTP $HTTP_CODE)"
+                    elif [ "$HTTP_CODE" -ge 500 ]; then
+                      echo "Server error (HTTP $HTTP_CODE)"
+                    else
+                      echo "Connection failed or timeout"
                     fi
-                    sleep 2
+                    sleep 3
                   done
 
                   if [ "$SUCCESS" = true ]; then

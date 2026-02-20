@@ -1,68 +1,68 @@
 name: 推荐友链处理
 
 on:
-  issues:
-    types: [labeled]
+    issues:
+        types: [labeled]
 
 jobs:
-  add-recommended:
-    if: github.event.label.name == 'recommended' && contains(github.event.issue.labels.*.name, '友链申请') && github.event.issue.state == 'closed'
-    runs-on: ubuntu-latest
-    permissions:
-      issues: read
-      contents: write
+    add-recommended:
+        if: github.event.label.name == 'recommended' && contains(github.event.issue.labels.*.name, '友链申请') && github.event.issue.state == 'closed'
+        runs-on: ubuntu-latest
+        permissions:
+            issues: read
+            contents: write
 
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+        steps:
+            - name: Checkout repository
+              uses: actions/checkout@v4
 
-      - name: Parse issue content
-        id: parse
-        env:
-          ISSUE_BODY: ${{ github.event.issue.body }}
-        run: |
-          echo "Parsing issue content for recommended update..."
-          
-          NAME=$(echo "$ISSUE_BODY" | grep -A1 "### 网站名称" | tail -n1 | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
-          URL=$(echo "$ISSUE_BODY" | grep -A1 "### 网站地址" | tail -n1 | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
-          
-          echo "name=$NAME" >> $GITHUB_OUTPUT
-          echo "url=$URL" >> $GITHUB_OUTPUT
-          
-          echo "Target friend link:"
-          echo "  Name: $NAME"
-          echo "  URL: $URL"
+            - name: Parse issue content
+              id: parse
+              env:
+                  ISSUE_BODY: ${{ github.event.issue.body }}
+              run: |
+                  echo "Parsing issue content for recommended update..."
 
-      - name: Add recommended field
-        run: |
-          NAME="${{ steps.parse.outputs.name }}"
-          URL="${{ steps.parse.outputs.url }}"
-          FILE_PATH="data/friends.ts"
-          
-          echo "Adding recommended: true to $NAME..."
-          
-          ESCAPED_NAME=$(echo "$NAME" | sed 's/[\/&]/\\&/g')
-          ESCAPED_URL=$(echo "$URL" | sed 's/[\/&]/\\&/g')
-          
-          awk -v name="$NAME" -v url="$URL" '
-          BEGIN { found = 0 }
-          /name: ".*"/ && /"'"$NAME"'"/ { found = 1 }
-          found && /url: ".*"/ && /"'"$URL"'"/ { found = 2 }
-          found == 2 && /addDate:/ {
-              print $0
-              print "        recommended: true"
-              found = 0
-              next
-          }
-          { print }
-          ' "$FILE_PATH" > "$FILE_PATH.tmp" && mv "$FILE_PATH.tmp" "$FILE_PATH"
-          
-          echo "Recommended field added!"
+                  NAME=$(echo "$ISSUE_BODY" | grep -A1 "### 网站名称" | tail -n1 | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+                  URL=$(echo "$ISSUE_BODY" | grep -A1 "### 网站地址" | tail -n1 | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
 
-      - name: Commit changes
-        run: |
-          git config --local user.email "github-actions[bot]@users.noreply.github.com"
-          git config --local user.name "github-actions[bot]"
-          git add data/friends.ts
-          git diff --staged --quiet || git commit -m "设置推荐友链: ${{ steps.parse.outputs.name }}"
-          git push
+                  echo "name=$NAME" >> $GITHUB_OUTPUT
+                  echo "url=$URL" >> $GITHUB_OUTPUT
+
+                  echo "Target friend link:"
+                  echo "  Name: $NAME"
+                  echo "  URL: $URL"
+
+            - name: Add recommended field
+              run: |
+                  NAME="${{ steps.parse.outputs.name }}"
+                  URL="${{ steps.parse.outputs.url }}"
+                  FILE_PATH="data/friends.ts"
+
+                  echo "Adding recommended: true to $NAME..."
+
+                  ESCAPED_NAME=$(echo "$NAME" | sed 's/[\/&]/\\&/g')
+                  ESCAPED_URL=$(echo "$URL" | sed 's/[\/&]/\\&/g')
+
+                  awk -v name="$NAME" -v url="$URL" '
+                  BEGIN { found = 0 }
+                  /name: ".*"/ && /"'"$NAME"'"/ { found = 1 }
+                  found && /url: ".*"/ && /"'"$URL"'"/ { found = 2 }
+                  found == 2 && /addDate:/ {
+                      print $0
+                      print "        recommended: true"
+                      found = 0
+                      next
+                  }
+                  { print }
+                  ' "$FILE_PATH" > "$FILE_PATH.tmp" && mv "$FILE_PATH.tmp" "$FILE_PATH"
+
+                  echo "Recommended field added!"
+
+            - name: Commit changes
+              run: |
+                  git config --local user.email "github-actions[bot]@users.noreply.github.com"
+                  git config --local user.name "github-actions[bot]"
+                  git add data/friends.ts
+                  git diff --staged --quiet || git commit -m "设置推荐友链: ${{ steps.parse.outputs.name }}"
+                  git push
