@@ -1,0 +1,214 @@
+name: Process Issues
+
+on
+  issues::
+    types:
+      - closed
+      - labeled
+
+jobs:
+  process-friend-link:
+    runs-on: ubuntu-latest
+    if: |
+      (github.event_name == 'issues' && github.event.action == 'closed' && contains(github.event.issue.labels.*.name, '友链申请')) ||
+      (github.event_name == 'issues' && github.event.action == 'labeled' && github.event.label.name == '推荐' && contains(github.event.issue.labels.*.name, '友链申请'))
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Process friend link request
+        run: |
+          if [ "${{ github.event.action }}" == "closed" ]; then
+            # Extract issue body
+            ISSUE_BODY=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" "${{ github.event.issue.url }}" | jq -r '.body')
+            
+            # Extract form data
+            NAME=$(echo "$ISSUE_BODY" | grep -A 1 "网站名称" | tail -n 1 | tr -d '[:space:]')
+            DESCRIPTION=$(echo "$ISSUE_BODY" | grep -A 1 "网站描述" | tail -n 1 | tr -d '[:space:]')
+            URL=$(echo "$ISSUE_BODY" | grep -A 1 "网站链接" | tail -n 1 | tr -d '[:space:]')
+            AVATAR=$(echo "$ISSUE_BODY" | grep -A 1 "头像链接" | tail -n 1 | tr -d '[:space:]')
+            
+            # Validate URL and avatar
+            URL_VALID=0
+            AVATAR_VALID=0
+            
+            for i in {1..3}; do
+              if [ $URL_VALID -eq 0 ]; then
+                curl -s -o /dev/null -w "%{http_code}" "$URL" | grep -q "200"
+                if [ $? -eq 0 ]; then
+                  URL_VALID=1
+                fi
+              fi
+              
+              if [ $AVATAR_VALID -eq 0 ]; then
+                curl -s -o /dev/null -w "%{http_code}" "$AVATAR" | grep -q "200"
+                if [ $? -eq 0 ]; then
+                  AVATAR_VALID=1
+                fi
+              fi
+              
+              if [ $URL_VALID -eq 1 ] && [ $AVATAR_VALID -eq 1 ]; then
+                break
+              fi
+              
+              sleep 1
+            done
+            
+            if [ $URL_VALID -eq 0 ] || [ $AVATAR_VALID -eq 0 ]; then
+              # Reopen issue and comment
+              curl -s -X PATCH -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" -H "Content-Type: application/json" "${{ github.event.issue.url }}" -d '{"state": "open"}'
+              
+              ERROR_MSG="链接验证失败："
+              if [ $URL_VALID -eq 0 ]; then
+                ERROR_MSG="$ERROR_MSG\n- 网站链接 (URL) 无法访问"
+              fi
+              if [ $AVATAR_VALID -eq 0 ]; then
+                ERROR_MSG="$ERROR_MSG\n- 头像链接 (Avatar) 无法访问"
+              fi
+              
+              curl -s -X POST -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" -H "Content-Type: application/json" "${{ github.event.issue.url }}/comments" -d '{"body": "'"$ERROR_MSG"'"}'
+            else
+              # Add friend link to the top of the list
+              TODAY=$(date +"%Y-%m-%d")
+              NEW_LINK=$(cat << EOF
+    {
+        name: "$NAME",
+        description: "$DESCRIPTION",
+        url: "$URL",
+        avatar: "$AVATAR",
+        addDate: "$TODAY"
+    },
+EOF
+              )
+              
+              # Read current friends.ts
+              CURRENT_CONTENT=$(cat data/friends.ts)
+              
+              # Insert new link after the opening bracket
+              NEW_CONTENT=$(echo "$CURRENT_CONTENT" | sed -e "/export const FRIEND_LINKS: FriendLink\[\] = \[/,/\]/c\export const FRIEND_LINKS: FriendLink\[\] = [\n$NEW_LINK" -e "/$NEW_LINK/,/\]/c\$NEW_LINK\n\];")
+              
+              # Write back to friends.ts
+              echo "$NEW_CONTENT" > data/friends.ts
+              
+              # Commit and push changes
+              git config --global user.name "github-actions[bot]"
+              git config --global user.email "github-actions[bot]@users.noreply.github.com"
+              git add data/friends.ts
+              git commit -m "Add new friend link: $NAME"
+              git push
+            fi
+          elif [ "${{ github.event.action }}" == "labeled" ] && [ "${{ github.event.label.name }}" == "推荐" ]; then
+            # Extract issue body to get the friend link info
+            ISSUE_BODY=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" "${{ github.event.issue.url }}" | jq -r '.body')
+            NAME=$(echo "$ISSUE_BODY" | grep -A 1 "网站名称" | tail -n 1 | tr -d '[:space:]')
+            
+            # Add recommended field to the friend link
+            CURRENT_CONTENT=$(cat data/friends.ts)
+            NEW_CONTENT=$(echo "$CURRENT_CONTENT" | sed "s/name: \"$NAME\",/name: \"$NAME\",\n        recommended: true/" | head -100)
+            
+            # Write back to friends.ts
+            echo "$NEW_CONTENT" > data/friends.ts
+            
+            # Commit and push changes
+            git config --global user.name "github-actions[bot]"
+            git config --global user.email "github-actions[bot]@users.noreply.github.com"
+            git add data/friends.ts
+            git commit -m "Mark friend link as recommended: $NAME"
+            git push
+          fi
+
+  process-sponsor:
+    runs-on: ubuntu-latest
+    if: |
+      github.event_name == 'issues' && 
+      github.event.action == 'labeled' && 
+      github.event.label.name == '确认' && 
+      contains(github.event.issue.labels.*.name, '捐赠添加')
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Process sponsor request
+        run: |
+          # Extract issue body
+          ISSUE_BODY=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" "${{ github.event.issue.url }}" | jq -r '.body')
+          
+          # Extract form data
+          NAME=$(echo "$ISSUE_BODY" | grep -A 1 "捐赠人名称" | tail -n 1 | tr -d '[:space:]')
+          AVATAR=$(echo "$ISSUE_BODY" | grep -A 1 "头像链接" | tail -n 1 | tr -d '[:space:]')
+          WEBSITE=$(echo "$ISSUE_BODY" | grep -A 1 "网站链接" | tail -n 1 | tr -d '[:space:]')
+          DATE=$(echo "$ISSUE_BODY" | grep -A 1 "捐赠日期" | tail -n 1 | tr -d '[:space:]')
+          AMOUNT=$(echo "$ISSUE_BODY" | grep -A 1 "捐赠金额" | tail -n 1 | tr -d '[:space:]')
+          
+          # Validate avatar and website URLs
+          AVATAR_VALID=0
+          WEBSITE_VALID=0
+          
+          for i in {1..3}; do
+            if [ $AVATAR_VALID -eq 0 ]; then
+              curl -s -o /dev/null -w "%{http_code}" "$AVATAR" | grep -q "200"
+              if [ $? -eq 0 ]; then
+                AVATAR_VALID=1
+              fi
+            fi
+            
+            if [ $WEBSITE_VALID -eq 0 ]; then
+              curl -s -o /dev/null -w "%{http_code}" "$WEBSITE" | grep -q "200"
+              if [ $? -eq 0 ]; then
+                WEBSITE_VALID=1
+              fi
+            fi
+            
+            if [ $AVATAR_VALID -eq 1 ] && [ $WEBSITE_VALID -eq 1 ]; then
+              break
+            fi
+            
+            sleep 1
+          done
+          
+          if [ $AVATAR_VALID -eq 0 ] || [ $WEBSITE_VALID -eq 0 ]; then
+            # Reopen issue and comment
+            curl -s -X PATCH -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" -H "Content-Type: application/json" "${{ github.event.issue.url }}" -d '{"state": "open"}'
+            
+            ERROR_MSG="链接验证失败："
+            if [ $AVATAR_VALID -eq 0 ]; then
+              ERROR_MSG="$ERROR_MSG\n- 头像链接 (Avatar) 无法访问"
+            fi
+            if [ $WEBSITE_VALID -eq 0 ]; then
+              ERROR_MSG="$ERROR_MSG\n- 网站链接 (Website) 无法访问"
+            fi
+            
+            curl -s -X POST -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" -H "Content-Type: application/json" "${{ github.event.issue.url }}/comments" -d '{"body": "'"$ERROR_MSG"'"}'
+          else
+            # Add sponsor to the sponsors.json
+            NEW_SPONSOR=$(cat << EOF
+{
+	"name": "$NAME",
+	"avatar": "$AVATAR",
+	"website": "$WEBSITE",
+	"date": "$DATE",
+	"amount": "$AMOUNT"
+}
+EOF
+            )
+            
+            # Write new sponsor to sponsors.json
+            echo "$NEW_SPONSOR" > data/sponsors.json
+            
+            # Commit and push changes
+            git config --global user.name "github-actions[bot]"
+            git config --global user.email "github-actions[bot]@users.noreply.github.com"
+            git add data/sponsors.json
+            git commit -m "Add new sponsor: $NAME"
+            git push
+          fi
