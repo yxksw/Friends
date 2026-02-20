@@ -28,10 +28,10 @@ jobs:
               run: |
                   echo "Parsing issue content..."
 
-                  NAME=$(echo "$ISSUE_BODY" | grep -A1 "### 网站名称" | tail -n1 | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
-                  DESCRIPTION=$(echo "$ISSUE_BODY" | grep -A1 "### 网站描述" | tail -n1 | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
-                  URL=$(echo "$ISSUE_BODY" | grep -A1 "### 网站地址" | tail -n1 | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
-                  AVATAR=$(echo "$ISSUE_BODY" | grep -A1 "### 头像地址" | tail -n1 | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+                  NAME=$(echo "$ISSUE_BODY" | grep -A1 "### 网站名称" | tail -n1 | sed 's/^[[:space:]]*//;s/[[:space:]]*$//;s/^`//;s/`$//')
+                  DESCRIPTION=$(echo "$ISSUE_BODY" | grep -A1 "### 网站描述" | tail -n1 | sed 's/^[[:space:]]*//;s/[[:space:]]*$//;s/^`//;s/`$//')
+                  URL=$(echo "$ISSUE_BODY" | grep -A1 "### 网站地址" | tail -n1 | sed 's/^[[:space:]]*//;s/[[:space:]]*$//;s/^`//;s/`$//')
+                  AVATAR=$(echo "$ISSUE_BODY" | grep -A1 "### 头像地址" | tail -n1 | sed 's/^[[:space:]]*//;s/[[:space:]]*$//;s/^`//;s/`$//')
 
                   echo "name=$NAME" >> $GITHUB_OUTPUT
                   echo "description=$DESCRIPTION" >> $GITHUB_OUTPUT
