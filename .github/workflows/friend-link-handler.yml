@@ -22,6 +22,7 @@ jobs:
         with:
           script: |
             const body = context.payload.issue.body;
+            const title = context.payload.issue.title;
             
             function extractValue(text, label) {
               const regex = new RegExp(`###\\s*${label}[\\s\\S]*?\\n\\s*(.+?)(?:\\n|$)`, 'i');
@@ -39,29 +40,23 @@ jobs:
             const url = extractValue(body, '网站地址');
             const avatar = extractValue(body, '头像地址');
             
+            const isRecovery = title.startsWith('友链失联:');
+            
             console.log('Parsed values:');
             console.log('  Name:', name);
             console.log('  Description:', description);
             console.log('  URL:', url);
             console.log('  Avatar:', avatar);
+            console.log('  Is Recovery:', isRecovery);
             
             core.setOutput('name', name);
             core.setOutput('description', description);
             core.setOutput('url', url);
             core.setOutput('avatar', avatar);
-
-      - name: Check if disconnected recovery
-        id: check_recovery
-        run: |
-          if [ "${{ contains(github.event.issue.labels.*.name, 'disconnected') }}" = "true" ]; then
-            echo "is_recovery=true" >> $GITHUB_OUTPUT
-            echo "This is a disconnected link recovery"
-          else
-            echo "is_recovery=false" >> $GITHUB_OUTPUT
-          fi
+            core.setOutput('is_recovery', isRecovery.toString());
 
       - name: Remove disconnected flag
-        if: steps.check_recovery.outputs.is_recovery == 'true'
+        if: steps.parse.outputs.is_recovery == 'true'
         env:
           NAME: ${{ steps.parse.outputs.name }}
           URL: ${{ steps.parse.outputs.url }}
@@ -83,7 +78,7 @@ jobs:
           echo "Disconnected flag removed!"
 
       - name: Commit recovery
-        if: steps.check_recovery.outputs.is_recovery == 'true'
+        if: steps.parse.outputs.is_recovery == 'true'
         run: |
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
@@ -92,7 +87,7 @@ jobs:
           git push
 
       - name: Comment recovery success
-        if: steps.check_recovery.outputs.is_recovery == 'true'
+        if: steps.parse.outputs.is_recovery == 'true'
         uses: actions/github-script@v7
         env:
           NAME: ${{ steps.parse.outputs.name }}
@@ -108,7 +103,7 @@ jobs:
             });
 
       - name: Check if manually approved
-        if: steps.check_recovery.outputs.is_recovery != 'true'
+        if: steps.parse.outputs.is_recovery != 'true'
         id: manual_check
         run: |
           if [ "${{ contains(github.event.issue.labels.*.name, '手动通过') }}" = "true" ]; then
@@ -119,7 +114,7 @@ jobs:
           fi
 
       - name: Check if already exists
-        if: steps.check_recovery.outputs.is_recovery != 'true'
+        if: steps.parse.outputs.is_recovery != 'true'
         id: check_exists
         env:
           URL: ${{ steps.parse.outputs.url }}
@@ -132,7 +127,7 @@ jobs:
           fi
 
       - name: Check URL accessibility
-        if: steps.check_recovery.outputs.is_recovery != 'true' && steps.manual_check.outputs.manual_approved != 'true' && steps.check_exists.outputs.already_exists != 'true'
+        if: steps.parse.outputs.is_recovery != 'true' && steps.manual_check.outputs.manual_approved != 'true' && steps.check_exists.outputs.already_exists != 'true'
         id: check_url
         env:
           URL: ${{ steps.parse.outputs.url }}
@@ -163,7 +158,7 @@ jobs:
           fi
 
       - name: Check Avatar accessibility
-        if: steps.check_recovery.outputs.is_recovery != 'true' && steps.manual_check.outputs.manual_approved != 'true' && steps.check_exists.outputs.already_exists != 'true'
+        if: steps.parse.outputs.is_recovery != 'true' && steps.manual_check.outputs.manual_approved != 'true' && steps.check_exists.outputs.already_exists != 'true'
         id: check_avatar
         env:
           AVATAR: ${{ steps.parse.outputs.avatar }}
@@ -194,7 +189,7 @@ jobs:
           fi
 
       - name: Validate results
-        if: steps.check_recovery.outputs.is_recovery != 'true'
+        if: steps.parse.outputs.is_recovery != 'true'
         id: validate
         run: |
           MANUAL="${{ steps.manual_check.outputs.manual_approved }}"
@@ -237,7 +232,7 @@ jobs:
           fi
 
       - name: Add friend link to file
-        if: steps.check_recovery.outputs.is_recovery != 'true' && steps.validate.outputs.validation_passed == 'true'
+        if: steps.parse.outputs.is_recovery != 'true' && steps.validate.outputs.validation_passed == 'true'
         env:
           NAME: ${{ steps.parse.outputs.name }}
           DESCRIPTION: ${{ steps.parse.outputs.description }}
@@ -271,7 +266,7 @@ jobs:
           echo "Friend link added successfully!"
 
       - name: Commit changes
-        if: steps.check_recovery.outputs.is_recovery != 'true' && steps.validate.outputs.validation_passed == 'true'
+        if: steps.parse.outputs.is_recovery != 'true' && steps.validate.outputs.validation_passed == 'true'
         run: |
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
@@ -280,7 +275,7 @@ jobs:
           git push
 
       - name: Comment success
-        if: steps.check_recovery.outputs.is_recovery != 'true' && steps.validate.outputs.validation_passed == 'true'
+        if: steps.parse.outputs.is_recovery != 'true' && steps.validate.outputs.validation_passed == 'true'
         uses: actions/github-script@v7
         env:
           NAME: ${{ steps.parse.outputs.name }}
@@ -299,7 +294,7 @@ jobs:
             });
 
       - name: Comment already exists
-        if: steps.check_recovery.outputs.is_recovery != 'true' && steps.validate.outputs.failure_reason == '友链已存在，跳过添加'
+        if: steps.parse.outputs.is_recovery != 'true' && steps.validate.outputs.failure_reason == '友链已存在，跳过添加'
         uses: actions/github-script@v7
         with:
           script: |
@@ -311,7 +306,7 @@ jobs:
             });
 
       - name: Reopen issue on failure
-        if: steps.check_recovery.outputs.is_recovery != 'true' && steps.validate.outputs.validation_passed == 'false' && steps.validate.outputs.failure_reason != '友链已存在，跳过添加'
+        if: steps.parse.outputs.is_recovery != 'true' && steps.validate.outputs.validation_passed == 'false' && steps.validate.outputs.failure_reason != '友链已存在，跳过添加'
         uses: actions/github-script@v7
         env:
           REASON: ${{ steps.validate.outputs.failure_reason }}

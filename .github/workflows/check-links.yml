@@ -61,13 +61,6 @@ jobs:
                         );
                         
                         if (foundIssue) {
-                          await github.rest.issues.addLabels({
-                            owner: context.repo.owner,
-                            repo: context.repo.repo,
-                            issue_number: foundIssue.number,
-                            labels: ['disconnected']
-                          });
-                          
                           if (foundIssue.state === 'closed') {
                             await github.rest.issues.update({
                               owner: context.repo.owner,
@@ -90,8 +83,7 @@ jobs:
                             owner: context.repo.owner,
                             repo: context.repo.repo,
                             title: `友链失联: ${item.name}`,
-                            body: `### 网站名称\n\n${item.name}\n\n### 网站地址\n\n${item.url}\n\n---\n\n⚠️ 此议题由友链检测自动创建。\n\n**失败原因**: ${item.reason}`,
-                            labels: ['disconnected']
+                            body: `### 网站名称\n\n${item.name}\n\n### 网站地址\n\n${item.url}\n\n---\n\n⚠️ 此议题由友链检测自动创建。\n\n**失败原因**: ${item.reason}`
                           });
                           console.log(`Created issue #${newIssue.data.number} for ${item.name}`);
                         }
