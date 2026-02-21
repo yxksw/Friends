@@ -17,7 +17,7 @@ interface FriendLink {
   disconnected?: boolean
 }
 
-type LinkStatus = 'ok' | 'timeout' | 'error'
+type LinkStatus = 'ok' | 'timeout' | 'error' | 'skipped'
 
 interface LinkCheckResult {
   name: string
@@ -30,6 +30,7 @@ interface LinkCheckResult {
   avatarStatus?: LinkStatus
   avatarHttpStatus?: number
   avatarResponseTime?: number
+  skipped?: boolean
 }
 
 interface DisconnectedInfo {
@@ -169,10 +170,11 @@ async function checkLink(friend: FriendLink): Promise<LinkCheckResult> {
 
   if (friend.disconnected) {
     console.log(`[Check-Links] ${friend.name} 已标记为失联，跳过检测 🚫`)
-    result.status = 'ok'
+    result.status = 'skipped'
     result.responseTime = 0
-    result.avatarStatus = 'ok'
+    result.avatarStatus = 'skipped'
     result.avatarResponseTime = 0
+    result.skipped = true
     return result
   }
 
@@ -255,8 +257,7 @@ async function main() {
   }
 
   const failed = results.filter(r => 
-    (r.status !== 'ok' && !r.reason?.includes('已标记为失联')) || 
-    r.avatarStatus !== 'ok'
+    !r.skipped && (r.status !== 'ok' || r.avatarStatus !== 'ok')
   )
 
   if (failed.length > 0) {
@@ -286,12 +287,8 @@ async function main() {
 
     const updatedFriends = friends.map(f => {
       const result = results.find(r => r.name === f.name)
-      if (result && (result.status !== 'ok' || result.avatarStatus !== 'ok')) {
+      if (result && !result.skipped && (result.status !== 'ok' || result.avatarStatus !== 'ok')) {
         return { ...f, disconnected: true }
-      }
-      if (result?.status === 'ok' && result?.avatarStatus === 'ok' && f.disconnected) {
-        const { disconnected, ...rest } = f
-        return rest as FriendLink
       }
       return f
     })
@@ -308,10 +305,15 @@ async function main() {
     process.exit(1)
   }
 
-  const recoveredFriends = friends.filter(f => f.disconnected)
+  const recoveredFriends = friends.filter((f, i) => {
+    const result = results[i]
+    return f.disconnected && !result?.skipped && result?.status === 'ok' && result?.avatarStatus === 'ok'
+  })
+  
   if (recoveredFriends.length > 0) {
-    const updatedFriends = friends.map(f => {
-      if (f.disconnected) {
+    const updatedFriends = friends.map((f, i) => {
+      const result = results[i]
+      if (f.disconnected && !result?.skipped && result?.status === 'ok' && result?.avatarStatus === 'ok') {
         const { disconnected, ...rest } = f
         return rest as FriendLink
       }
@@ -319,9 +321,9 @@ async function main() {
     })
     await fs.writeFile(DATA_PATH, generateFriendsTs(updatedFriends))
     console.log(`[Check-Links] ${recoveredFriends.length} 个友链已恢复连接，已更新文件 ✅`)
+  } else {
+    console.log('[Check-Links] 所有友链状态正常 ✅')
   }
-
-  console.log('[Check-Links] 所有友链状态正常 ✅')
 }
 
 main().catch(console.error)
