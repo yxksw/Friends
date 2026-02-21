@@ -15,6 +15,7 @@ export const FRIEND_LINKS: FriendLink[] = [
         url: "https://cs.050815.xyz",
         avatar: "https://cn.cravatar.com/avatar/eb7277a11fa4dc00606e73afda41aeeb?=256",
         addDate: "2026-02-21",
+        disconnected: true
     },
     {
         name: "ATao-Blog",
