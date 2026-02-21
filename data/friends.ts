@@ -34,13 +34,6 @@ export const FRIEND_LINKS: FriendLink[] = [
         recommended: true
     },
     {
-        name: "测试失联",
-        description: "测试失联",
-        url: "https://example.com",
-        avatar: "https://example.com/avatar.jpg",
-        addDate: "2025-09-09"
-    },
-    {
         name: "鈴奈咲桜のBlog",
         description: "愛することを忘れないで",
         url: "https://blog.sakura.ink",
