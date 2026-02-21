@@ -38,8 +38,7 @@ export const FRIEND_LINKS: FriendLink[] = [
         description: "测试失联",
         url: "https://example.com",
         avatar: "https://example.com/avatar.jpg",
-        addDate: "2025-09-09",
-        disconnected: true
+        addDate: "2025-09-09"
     },
     {
         name: "鈴奈咲桜のBlog",
@@ -49,5 +48,4 @@ export const FRIEND_LINKS: FriendLink[] = [
         addDate: "2025-09-09",
         recommended: true
     },
-    // 在这里添加更多友链
 ];
