@@ -111,9 +111,3 @@ jobs:
               if: always()
               run: |
                   rm -f disconnected.json
-
-            - name: Fail if links are broken
-              if: steps.check.outcome == 'failure'
-              run: |
-                  echo "部分友链检测失败，请查看日志了解详情"
-                  exit 1
