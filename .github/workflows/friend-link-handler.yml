@@ -1,274 +1,334 @@
 name: 友链申请处理
 
 on:
-    issues:
-        types: [closed]
+  issues:
+    types: [closed]
 
 jobs:
-    process-friend-link:
-        if: contains(github.event.issue.body, '网站名称') && contains(github.event.issue.body, '网站地址')
-        runs-on: ubuntu-latest
-        permissions:
-            issues: write
-            contents: write
+  process-friend-link:
+    if: contains(github.event.issue.body, '网站名称') && contains(github.event.issue.body, '网站地址')
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+      contents: write
 
-        steps:
-            - name: Checkout repository
-              uses: actions/checkout@v4
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-            - name: Parse issue content
-              id: parse
-              uses: actions/github-script@v7
-              with:
-                  script: |
-                      const body = context.payload.issue.body;
+      - name: Parse issue content
+        id: parse
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const body = context.payload.issue.body;
+            
+            function extractValue(text, label) {
+              const regex = new RegExp(`###\\s*${label}[\\s\\S]*?\\n\\s*(.+?)(?:\\n|$)`, 'i');
+              const match = text.match(regex);
+              if (match) {
+                let value = match[1].trim();
+                value = value.replace(/^`+|`+$/g, '');
+                return value;
+              }
+              return '';
+            }
+            
+            const name = extractValue(body, '网站名称');
+            const description = extractValue(body, '网站描述');
+            const url = extractValue(body, '网站地址');
+            const avatar = extractValue(body, '头像地址');
+            
+            console.log('Parsed values:');
+            console.log('  Name:', name);
+            console.log('  Description:', description);
+            console.log('  URL:', url);
+            console.log('  Avatar:', avatar);
+            
+            core.setOutput('name', name);
+            core.setOutput('description', description);
+            core.setOutput('url', url);
+            core.setOutput('avatar', avatar);
 
-                      function extractValue(text, label) {
-                        const regex = new RegExp(`###\\s*${label}[\\s\\S]*?\\n\\s*(.+?)(?:\\n|$)`, 'i');
-                        const match = text.match(regex);
-                        if (match) {
-                          let value = match[1].trim();
-                          value = value.replace(/^`+|`+$/g, '');
-                          return value;
-                        }
-                        return '';
-                      }
+      - name: Check if disconnected recovery
+        id: check_recovery
+        run: |
+          if [ "${{ contains(github.event.issue.labels.*.name, 'disconnected') }}" = "true" ]; then
+            echo "is_recovery=true" >> $GITHUB_OUTPUT
+            echo "This is a disconnected link recovery"
+          else
+            echo "is_recovery=false" >> $GITHUB_OUTPUT
+          fi
 
-                      const name = extractValue(body, '网站名称');
-                      const description = extractValue(body, '网站描述');
-                      const url = extractValue(body, '网站地址');
-                      const avatar = extractValue(body, '头像地址');
+      - name: Remove disconnected flag
+        if: steps.check_recovery.outputs.is_recovery == 'true'
+        env:
+          NAME: ${{ steps.parse.outputs.name }}
+          URL: ${{ steps.parse.outputs.url }}
+        run: |
+          FILE_PATH="data/friends.ts"
+          
+          echo "Removing disconnected flag for $NAME..."
+          
+          awk -v name="$NAME" -v url="$URL" '
+          BEGIN { in_block = 0; found = 0 }
+          /{/ { in_block++ }
+          /}/ { in_block-- }
+          in_block > 0 && /name: ".*"/ && index($0, name) > 0 { found = 1 }
+          in_block > 0 && found == 1 && /url: ".*"/ && index($0, url) > 0 { found = 2 }
+          found == 2 && /disconnected:/ { next }
+          { print }
+          ' "$FILE_PATH" > "$FILE_PATH.tmp" && mv "$FILE_PATH.tmp" "$FILE_PATH"
+          
+          echo "Disconnected flag removed!"
 
-                      console.log('Parsed values:');
-                      console.log('  Name:', name);
-                      console.log('  Description:', description);
-                      console.log('  URL:', url);
-                      console.log('  Avatar:', avatar);
+      - name: Commit recovery
+        if: steps.check_recovery.outputs.is_recovery == 'true'
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          git add data/friends.ts
+          git commit -m "恢复友链: ${{ steps.parse.outputs.name }}"
+          git push
 
-                      core.setOutput('name', name);
-                      core.setOutput('description', description);
-                      core.setOutput('url', url);
-                      core.setOutput('avatar', avatar);
+      - name: Comment recovery success
+        if: steps.check_recovery.outputs.is_recovery == 'true'
+        uses: actions/github-script@v7
+        env:
+          NAME: ${{ steps.parse.outputs.name }}
+        with:
+          script: |
+            const name = process.env.NAME;
+            
+            await github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: `✅ 友链已恢复！\n\n**网站名称**: ${name}\n\n已移除失联标记，友链恢复正常状态。`
+            });
 
-            - name: Check if manually approved
-              id: manual_check
-              run: |
-                  if [ "${{ contains(github.event.issue.labels.*.name, '手动通过') }}" = "true" ]; then
-                    echo "manual_approved=true" >> $GITHUB_OUTPUT
-                    echo "Manual approval detected!"
-                  else
-                    echo "manual_approved=false" >> $GITHUB_OUTPUT
-                  fi
+      - name: Check if manually approved
+        if: steps.check_recovery.outputs.is_recovery != 'true'
+        id: manual_check
+        run: |
+          if [ "${{ contains(github.event.issue.labels.*.name, '手动通过') }}" = "true" ]; then
+            echo "manual_approved=true" >> $GITHUB_OUTPUT
+            echo "Manual approval detected!"
+          else
+            echo "manual_approved=false" >> $GITHUB_OUTPUT
+          fi
 
-            - name: Check if already exists
-              id: check_exists
-              env:
-                  URL: ${{ steps.parse.outputs.url }}
-              run: |
-                  if grep -q "url: \"$URL\"" data/friends.ts 2>/dev/null; then
-                    echo "already_exists=true" >> $GITHUB_OUTPUT
-                    echo "Friend link already exists!"
-                  else
-                    echo "already_exists=false" >> $GITHUB_OUTPUT
-                  fi
+      - name: Check if already exists
+        if: steps.check_recovery.outputs.is_recovery != 'true'
+        id: check_exists
+        env:
+          URL: ${{ steps.parse.outputs.url }}
+        run: |
+          if grep -q "url: \"$URL\"" data/friends.ts 2>/dev/null; then
+            echo "already_exists=true" >> $GITHUB_OUTPUT
+            echo "Friend link already exists!"
+          else
+            echo "already_exists=false" >> $GITHUB_OUTPUT
+          fi
 
-            - name: Check URL accessibility
-              id: check_url
-              if: steps.manual_check.outputs.manual_approved != 'true' && steps.check_exists.outputs.already_exists != 'true'
-              env:
-                  URL: ${{ steps.parse.outputs.url }}
-              run: |
-                  echo "Checking URL: $URL"
+      - name: Check URL accessibility
+        if: steps.check_recovery.outputs.is_recovery != 'true' && steps.manual_check.outputs.manual_approved != 'true' && steps.check_exists.outputs.already_exists != 'true'
+        id: check_url
+        env:
+          URL: ${{ steps.parse.outputs.url }}
+        run: |
+          echo "Checking URL: $URL"
+          
+          SUCCESS=false
+          for i in 1 2 3; do
+            echo "Attempt $i..."
+            HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --connect-timeout 15 --max-time 20 -L \
+              -H "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" \
+              -H "Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8" \
+              "$URL" 2>/dev/null)
+            echo "HTTP Code: $HTTP_CODE"
+            
+            if [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 400 ]; then
+              echo "URL is accessible on attempt $i"
+              SUCCESS=true
+              break
+            fi
+            sleep 3
+          done
+          
+          if [ "$SUCCESS" = true ]; then
+            echo "url_accessible=true" >> $GITHUB_OUTPUT
+          else
+            echo "url_accessible=false" >> $GITHUB_OUTPUT
+          fi
 
-                  SUCCESS=false
-                  for i in 1 2 3; do
-                    echo "Attempt $i..."
-                    HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --connect-timeout 15 --max-time 20 -L \
-                      -H "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" \
-                      -H "Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8" \
-                      "$URL" 2>/dev/null)
-                    echo "HTTP Code: $HTTP_CODE"
-                    
-                    if [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 400 ]; then
-                      echo "URL is accessible on attempt $i"
-                      SUCCESS=true
-                      break
-                    fi
-                    sleep 3
-                  done
+      - name: Check Avatar accessibility
+        if: steps.check_recovery.outputs.is_recovery != 'true' && steps.manual_check.outputs.manual_approved != 'true' && steps.check_exists.outputs.already_exists != 'true'
+        id: check_avatar
+        env:
+          AVATAR: ${{ steps.parse.outputs.avatar }}
+        run: |
+          echo "Checking Avatar: $AVATAR"
+          
+          SUCCESS=false
+          for i in 1 2 3; do
+            echo "Attempt $i..."
+            HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --connect-timeout 15 --max-time 20 -L \
+              -H "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" \
+              -H "Accept: image/webp,image/apng,image/*,*/*;q=0.8" \
+              "$AVATAR" 2>/dev/null)
+            echo "HTTP Code: $HTTP_CODE"
+            
+            if [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 400 ]; then
+              echo "Avatar is accessible on attempt $i"
+              SUCCESS=true
+              break
+            fi
+            sleep 3
+          done
+          
+          if [ "$SUCCESS" = true ]; then
+            echo "avatar_accessible=true" >> $GITHUB_OUTPUT
+          else
+            echo "avatar_accessible=false" >> $GITHUB_OUTPUT
+          fi
 
-                  if [ "$SUCCESS" = true ]; then
-                    echo "url_accessible=true" >> $GITHUB_OUTPUT
-                  else
-                    echo "url_accessible=false" >> $GITHUB_OUTPUT
-                  fi
+      - name: Validate results
+        if: steps.check_recovery.outputs.is_recovery != 'true'
+        id: validate
+        run: |
+          MANUAL="${{ steps.manual_check.outputs.manual_approved }}"
+          EXISTS="${{ steps.check_exists.outputs.already_exists }}"
+          NAME="${{ steps.parse.outputs.name }}"
+          URL="${{ steps.parse.outputs.url }}"
+          AVATAR="${{ steps.parse.outputs.avatar }}"
+          
+          if [ "$EXISTS" = "true" ]; then
+            echo "validation_passed=false" >> $GITHUB_OUTPUT
+            echo "failure_reason=友链已存在，跳过添加" >> $GITHUB_OUTPUT
+          elif [ -z "$NAME" ] || [ -z "$URL" ] || [ -z "$AVATAR" ]; then
+            echo "validation_passed=false" >> $GITHUB_OUTPUT
+            echo "failure_reason=表单解析失败，缺少必填字段" >> $GITHUB_OUTPUT
+          elif [ "$MANUAL" = "true" ]; then
+            echo "validation_passed=true" >> $GITHUB_OUTPUT
+            echo "Manual approval - skipping URL check"
+          else
+            URL_OK="${{ steps.check_url.outputs.url_accessible }}"
+            AVATAR_OK="${{ steps.check_avatar.outputs.avatar_accessible }}"
+            
+            if [ "$URL_OK" = "true" ] && [ "$AVATAR_OK" = "true" ]; then
+              echo "validation_passed=true" >> $GITHUB_OUTPUT
+            else
+              echo "validation_passed=false" >> $GITHUB_OUTPUT
+              
+              REASON=""
+              if [ "$URL_OK" != "true" ]; then
+                REASON="网站地址无法访问（可能是服务器限制了 GitHub IP，请添加「手动通过」标签）"
+              fi
+              if [ "$AVATAR_OK" != "true" ]; then
+                if [ -n "$REASON" ]; then
+                  REASON="$REASON，"
+                fi
+                REASON="${REASON}头像地址无法访问"
+              fi
+              
+              echo "failure_reason=$REASON" >> $GITHUB_OUTPUT
+            fi
+          fi
 
-            - name: Check Avatar accessibility
-              id: check_avatar
-              if: steps.manual_check.outputs.manual_approved != 'true' && steps.check_exists.outputs.already_exists != 'true'
-              env:
-                  AVATAR: ${{ steps.parse.outputs.avatar }}
-              run: |
-                  echo "Checking Avatar: $AVATAR"
+      - name: Add friend link to file
+        if: steps.check_recovery.outputs.is_recovery != 'true' && steps.validate.outputs.validation_passed == 'true'
+        env:
+          NAME: ${{ steps.parse.outputs.name }}
+          DESCRIPTION: ${{ steps.parse.outputs.description }}
+          URL: ${{ steps.parse.outputs.url }}
+          AVATAR: ${{ steps.parse.outputs.avatar }}
+        run: |
+          ADD_DATE=$(date +%Y-%m-%d)
+          
+          echo "Adding friend link..."
+          echo "  Name: $NAME"
+          echo "  URL: $URL"
+          echo "  Date: $ADD_DATE"
+          
+          FILE_PATH="data/friends.ts"
+          
+          awk -v name="$NAME" -v desc="$DESCRIPTION" -v url="$URL" -v avatar="$AVATAR" -v date="$ADD_DATE" '
+          /^export const FRIEND_LINKS: FriendLink\[\] = \[$/ {
+              print $0
+              print "    {"
+              print "        name: \"" name "\","
+              print "        description: \"" desc "\","
+              print "        url: \"" url "\","
+              print "        avatar: \"" avatar "\","
+              print "        addDate: \"" date "\","
+              print "    },"
+              next
+          }
+          { print }
+          ' "$FILE_PATH" > "$FILE_PATH.tmp" && mv "$FILE_PATH.tmp" "$FILE_PATH"
+          
+          echo "Friend link added successfully!"
 
-                  SUCCESS=false
-                  for i in 1 2 3; do
-                    echo "Attempt $i..."
-                    HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --connect-timeout 15 --max-time 20 -L \
-                      -H "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" \
-                      -H "Accept: image/webp,image/apng,image/*,*/*;q=0.8" \
-                      "$AVATAR" 2>/dev/null)
-                    echo "HTTP Code: $HTTP_CODE"
-                    
-                    if [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 400 ]; then
-                      echo "Avatar is accessible on attempt $i"
-                      SUCCESS=true
-                      break
-                    fi
-                    sleep 3
-                  done
+      - name: Commit changes
+        if: steps.check_recovery.outputs.is_recovery != 'true' && steps.validate.outputs.validation_passed == 'true'
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          git add data/friends.ts
+          git commit -m "添加友链: ${{ steps.parse.outputs.name }}"
+          git push
 
-                  if [ "$SUCCESS" = true ]; then
-                    echo "avatar_accessible=true" >> $GITHUB_OUTPUT
-                  else
-                    echo "avatar_accessible=false" >> $GITHUB_OUTPUT
-                  fi
+      - name: Comment success
+        if: steps.check_recovery.outputs.is_recovery != 'true' && steps.validate.outputs.validation_passed == 'true'
+        uses: actions/github-script@v7
+        env:
+          NAME: ${{ steps.parse.outputs.name }}
+          URL: ${{ steps.parse.outputs.url }}
+        with:
+          script: |
+            const name = process.env.NAME;
+            const url = process.env.URL;
+            const date = new Date().toISOString().split('T')[0];
+            
+            await github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: `✅ 友链验证通过！已成功添加到友链列表。\n\n**网站名称**: ${name}\n**网站地址**: ${url}\n**添加日期**: ${date}`
+            });
 
-            - name: Validate results
-              id: validate
-              run: |
-                  MANUAL="${{ steps.manual_check.outputs.manual_approved }}"
-                  EXISTS="${{ steps.check_exists.outputs.already_exists }}"
-                  NAME="${{ steps.parse.outputs.name }}"
-                  URL="${{ steps.parse.outputs.url }}"
-                  AVATAR="${{ steps.parse.outputs.avatar }}"
+      - name: Comment already exists
+        if: steps.check_recovery.outputs.is_recovery != 'true' && steps.validate.outputs.failure_reason == '友链已存在，跳过添加'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: 'ℹ️ 该友链已存在于列表中，跳过重复添加。'
+            });
 
-                  if [ "$EXISTS" = "true" ]; then
-                    echo "validation_passed=false" >> $GITHUB_OUTPUT
-                    echo "failure_reason=友链已存在，跳过添加" >> $GITHUB_OUTPUT
-                  elif [ -z "$NAME" ] || [ -z "$URL" ] || [ -z "$AVATAR" ]; then
-                    echo "validation_passed=false" >> $GITHUB_OUTPUT
-                    echo "failure_reason=表单解析失败，缺少必填字段" >> $GITHUB_OUTPUT
-                  elif [ "$MANUAL" = "true" ]; then
-                    echo "validation_passed=true" >> $GITHUB_OUTPUT
-                    echo "Manual approval - skipping URL check"
-                  else
-                    URL_OK="${{ steps.check_url.outputs.url_accessible }}"
-                    AVATAR_OK="${{ steps.check_avatar.outputs.avatar_accessible }}"
-                    
-                    if [ "$URL_OK" = "true" ] && [ "$AVATAR_OK" = "true" ]; then
-                      echo "validation_passed=true" >> $GITHUB_OUTPUT
-                    else
-                      echo "validation_passed=false" >> $GITHUB_OUTPUT
-                      
-                      REASON=""
-                      if [ "$URL_OK" != "true" ]; then
-                        REASON="网站地址无法访问（可能是服务器限制了 GitHub IP，请添加「手动通过」标签）"
-                      fi
-                      if [ "$AVATAR_OK" != "true" ]; then
-                        if [ -n "$REASON" ]; then
-                          REASON="$REASON，"
-                        fi
-                        REASON="${REASON}头像地址无法访问"
-                      fi
-                      
-                      echo "failure_reason=$REASON" >> $GITHUB_OUTPUT
-                    fi
-                  fi
-
-            - name: Add friend link to file
-              if: steps.validate.outputs.validation_passed == 'true'
-              env:
-                  NAME: ${{ steps.parse.outputs.name }}
-                  DESCRIPTION: ${{ steps.parse.outputs.description }}
-                  URL: ${{ steps.parse.outputs.url }}
-                  AVATAR: ${{ steps.parse.outputs.avatar }}
-              run: |
-                  ADD_DATE=$(date +%Y-%m-%d)
-
-                  echo "Adding friend link..."
-                  echo "  Name: $NAME"
-                  echo "  URL: $URL"
-                  echo "  Date: $ADD_DATE"
-
-                  FILE_PATH="data/friends.ts"
-
-                  awk -v name="$NAME" -v desc="$DESCRIPTION" -v url="$URL" -v avatar="$AVATAR" -v date="$ADD_DATE" '
-                  /^export const FRIEND_LINKS: FriendLink\[\] = \[$/ {
-                      print $0
-                      print "    {"
-                      print "        name: \"" name "\","
-                      print "        description: \"" desc "\","
-                      print "        url: \"" url "\","
-                      print "        avatar: \"" avatar "\","
-                      print "        addDate: \"" date "\","
-                      print "    },"
-                      next
-                  }
-                  { print }
-                  ' "$FILE_PATH" > "$FILE_PATH.tmp" && mv "$FILE_PATH.tmp" "$FILE_PATH"
-
-                  echo "Friend link added successfully!"
-
-            - name: Commit changes
-              if: steps.validate.outputs.validation_passed == 'true'
-              run: |
-                  git config --local user.email "github-actions[bot]@users.noreply.github.com"
-                  git config --local user.name "github-actions[bot]"
-                  git add data/friends.ts
-                  git commit -m "添加友链: ${{ steps.parse.outputs.name }}"
-                  git push
-
-            - name: Comment success
-              if: steps.validate.outputs.validation_passed == 'true'
-              uses: actions/github-script@v7
-              env:
-                  NAME: ${{ steps.parse.outputs.name }}
-                  URL: ${{ steps.parse.outputs.url }}
-              with:
-                  script: |
-                      const name = process.env.NAME;
-                      const url = process.env.URL;
-                      const date = new Date().toISOString().split('T')[0];
-
-                      await github.rest.issues.createComment({
-                        issue_number: context.issue.number,
-                        owner: context.repo.owner,
-                        repo: context.repo.repo,
-                        body: `✅ 友链验证通过！已成功添加到友链列表。\n\n**网站名称**: ${name}\n**网站地址**: ${url}\n**添加日期**: ${date}`
-                      });
-
-            - name: Comment already exists
-              if: steps.validate.outputs.failure_reason == '友链已存在，跳过添加'
-              uses: actions/github-script@v7
-              with:
-                  script: |
-                      await github.rest.issues.createComment({
-                        issue_number: context.issue.number,
-                        owner: context.repo.owner,
-                        repo: context.repo.repo,
-                        body: 'ℹ️ 该友链已存在于列表中，跳过重复添加。'
-                      });
-
-            - name: Reopen issue on failure
-              if: steps.validate.outputs.validation_passed == 'false' && steps.validate.outputs.failure_reason != '友链已存在，跳过添加'
-              uses: actions/github-script@v7
-              env:
-                  REASON: ${{ steps.validate.outputs.failure_reason }}
-              with:
-                  script: |
-                      const reason = process.env.REASON;
-
-                      await github.rest.issues.update({
-                        owner: context.repo.owner,
-                        repo: context.repo.repo,
-                        issue_number: context.issue.number,
-                        state: 'open'
-                      });
-
-                      await github.rest.issues.createComment({
-                        issue_number: context.issue.number,
-                        owner: context.repo.owner,
-                        repo: context.repo.repo,
-                        body: `❌ 友链验证失败！\n\n**失败原因**: ${reason}\n\n请检查您提交的链接是否正确。如果确认链接无误，管理员可以添加「手动通过」标签后关闭议题。`
-                      });
+      - name: Reopen issue on failure
+        if: steps.check_recovery.outputs.is_recovery != 'true' && steps.validate.outputs.validation_passed == 'false' && steps.validate.outputs.failure_reason != '友链已存在，跳过添加'
+        uses: actions/github-script@v7
+        env:
+          REASON: ${{ steps.validate.outputs.failure_reason }}
+        with:
+          script: |
+            const reason = process.env.REASON;
+            
+            await github.rest.issues.update({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              state: 'open'
+            });
+            
+            await github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: `❌ 友链验证失败！\n\n**失败原因**: ${reason}\n\n请检查您提交的链接是否正确。如果确认链接无误，管理员可以添加「手动通过」标签后关闭议题。`
+            });

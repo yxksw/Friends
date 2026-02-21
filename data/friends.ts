@@ -34,10 +34,10 @@ export const FRIEND_LINKS: FriendLink[] = [
         recommended: true
     },
     {
-        name: "Luxynth",
-        description: "我心匪石不可转",
-        url: "https://www.luxynth.cn",
-        avatar: "https://www.luxynth.cn/assets/images/avatar.jpg",
+        name: "测试失联",
+        description: "测试失联",
+        url: "https://example.com",
+        avatar: "https://example.com/avatar.jpg",
         addDate: "2025-09-09",
         disconnected: true
     },
