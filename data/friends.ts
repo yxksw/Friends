@@ -15,6 +15,7 @@ export const FRIEND_LINKS: FriendLink[] = [
         url: "https://blog.atao.cyou/",
         avatar: "https://cdn.atao.cyou/Web/Avatar.png",
         addDate: "2026-02-21",
+        recommended: true
     },
     {
         name: "梨尽兴",
