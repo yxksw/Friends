@@ -72,19 +72,47 @@ function parseFriendsTs(content: string): FriendLink[] {
   const arrayContent = match[1]
   const friends: FriendLink[] = []
 
-  const objectRegex = /\{\s*name:\s*"([^"]+)",\s*description:\s*"([^"]+)",\s*url:\s*"([^"]+)",\s*avatar:\s*"([^"]+)"(?:,\s*addDate:\s*"([^"]*)")?(?:,\s*recommended:\s*(true|false))?(?:,\s*disconnected:\s*(true|false))?\s*\}/g
-
-  let objMatch
-  while ((objMatch = objectRegex.exec(arrayContent)) !== null) {
-    friends.push({
-      name: objMatch[1],
-      description: objMatch[2],
-      url: objMatch[3],
-      avatar: objMatch[4],
-      addDate: objMatch[5] || undefined,
-      recommended: objMatch[6] === 'true' ? true : undefined,
-      disconnected: objMatch[7] === 'true' ? true : undefined
-    })
+  const blocks = arrayContent.split(/\},\s*\{/g)
+  
+  for (let i = 0; i < blocks.length; i++) {
+    let block = blocks[i]
+    
+    if (i === 0) {
+      block = block.replace(/^\s*\{/, '')
+    }
+    if (i === blocks.length - 1) {
+      block = block.replace(/\}\s*$/, '')
+    }
+    
+    const friend: FriendLink = {
+      name: '',
+      description: '',
+      url: '',
+      avatar: ''
+    }
+    
+    const nameMatch = block.match(/name:\s*"([^"]+)"/)
+    if (nameMatch) friend.name = nameMatch[1]
+    
+    const descMatch = block.match(/description:\s*"([^"]+)"/)
+    if (descMatch) friend.description = descMatch[1]
+    
+    const urlMatch = block.match(/url:\s*"([^"]+)"/)
+    if (urlMatch) friend.url = urlMatch[1]
+    
+    const avatarMatch = block.match(/avatar:\s*"([^"]+)"/)
+    if (avatarMatch) friend.avatar = avatarMatch[1]
+    
+    const addDateMatch = block.match(/addDate:\s*"([^"]*)"/)
+    if (addDateMatch && addDateMatch[1]) friend.addDate = addDateMatch[1]
+    
+    if (/recommended:\s*true/.test(block)) friend.recommended = true
+    
+    if (/disconnected:\s*true/.test(block)) friend.disconnected = true
+    
+    if (friend.name && friend.url) {
+      friends.push(friend)
+    }
   }
 
   return friends
