@@ -10,6 +10,13 @@ export interface FriendLink {
 
 export const FRIEND_LINKS: FriendLink[] = [
     {
+        name: "ATao-Blog",
+        description: "做自己喜欢的事",
+        url: "https://blog.atao.cyou/",
+        avatar: "https://cdn.atao.cyou/Web/Avatar.png",
+        addDate: "2026-02-21",
+    },
+    {
         name: "梨尽兴",
         description: "A place for peace",
         url: "https://blog.ljx.icu",
