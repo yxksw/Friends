@@ -1,293 +1,296 @@
 name: 赞助数据验证
 
 on:
-  pull_request:
-    types: [opened, synchronize, reopened]
-    paths:
-      - 'data/sponsors.json'
+    pull_request_target:
+        types: [opened, synchronize, reopened]
+        paths:
+            - "data/sponsors.json"
 
 jobs:
-  validate-sponsor:
-    runs-on: ubuntu-latest
-    permissions:
-      pull-requests: write
-      contents: read
+    validate-sponsor:
+        runs-on: ubuntu-latest
+        permissions:
+            pull-requests: write
+            contents: read
 
-    steps:
-      - name: Checkout PR branch
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.pull_request.head.sha }}
+        steps:
+            - name: Checkout PR branch
+              uses: actions/checkout@v4
+              with:
+                  ref: ${{ github.event.pull_request.head.sha }}
+                  repository: ${{ github.event.pull_request.head.repo.full_name }}
 
-      - name: Get base sponsors.json
-        id: base_content
-        run: |
-          git fetch origin ${{ github.base_ref }}
-          git show origin/${{ github.base_ref }}:data/sponsors.json > base_sponsors.json 2>/dev/null || echo "[]" > base_sponsors.json
-          echo "base_file=base_sponsors.json" >> $GITHUB_OUTPUT
+            - name: Get base sponsors.json
+              id: base_content
+              run: |
+                  git fetch origin ${{ github.base_ref }}
+                  git show origin/${{ github.base_ref }}:data/sponsors.json > base_sponsors.json 2>/dev/null || echo "[]" > base_sponsors.json
+                  echo "base_file=base_sponsors.json" >> $GITHUB_OUTPUT
 
-      - name: Validate JSON syntax
-        id: validate_json
-        run: |
-          echo "Validating JSON syntax..."
-          
-          if ! python3 -c "import json; json.load(open('data/sponsors.json'))" 2>error.txt; then
-            ERROR=$(cat error.txt)
-            echo "json_valid=false" >> $GITHUB_OUTPUT
-            echo "error_message=JSON 语法错误: ${ERROR}" >> $GITHUB_OUTPUT
-            echo "JSON syntax error: ${ERROR}"
-          else
-            echo "json_valid=true" >> $GITHUB_OUTPUT
-            echo "JSON syntax is valid!"
-          fi
+            - name: Validate JSON syntax
+              id: validate_json
+              run: |
+                  echo "Validating JSON syntax..."
 
-      - name: Check for new entries
-        id: check_new
-        if: steps.validate_json.outputs.json_valid == 'true'
-        run: |
-          python3 << 'EOF'
-          import json
-          
-          with open('base_sponsors.json', 'r') as f:
-              base = json.load(f)
-          
-          with open('data/sponsors.json', 'r') as f:
-              new = json.load(f)
-          
-          base_urls = {item.get('website', '') for item in base}
-          base_names = {item.get('name', '') for item in base}
-          
-          new_entries = []
-          for item in new:
-              if item.get('name', '') not in base_names or item.get('website', '') not in base_urls:
-                  new_entries.append(item)
-          
-          if new_entries:
-              print(f"Found {len(new_entries)} new entry/entries")
-              import os
-              with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
-                  f.write(f"has_new_entries=true\n")
-                  f.write(f"new_entries_count={len(new_entries)}\n")
-              with open('new_entries.json', 'w') as f:
-                  json.dump(new_entries, f, indent=2)
-          else:
-              print("No new entries found")
-              import os
-              with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
-                  f.write("has_new_entries=false\n")
-          EOF
+                  if ! python3 -c "import json; json.load(open('data/sponsors.json'))" 2>error.txt; then
+                    ERROR=$(cat error.txt)
+                    echo "json_valid=false" >> $GITHUB_OUTPUT
+                    echo "error_message=JSON 语法错误: ${ERROR}" >> $GITHUB_OUTPUT
+                    echo "JSON syntax error: ${ERROR}"
+                  else
+                    echo "json_valid=true" >> $GITHUB_OUTPUT
+                    echo "JSON syntax is valid!"
+                  fi
 
-      - name: Validate new entry fields
-        id: validate_fields
-        if: steps.check_new.outputs.has_new_entries == 'true'
-        run: |
-          python3 << 'EOF'
-          import json
-          import os
-          
-          with open('new_entries.json', 'r') as f:
-              entries = json.load(f)
-          
-          errors = []
-          required_fields = ['name', 'avatar', 'date', 'amount']
-          
-          for i, entry in enumerate(entries):
-              entry_errors = []
-              
-              for field in required_fields:
-                  if field not in entry or not entry[field]:
-                      entry_errors.append(f"缺少必填字段: {field}")
-                  elif not isinstance(entry[field], str):
-                      entry_errors.append(f"字段 {field} 应为字符串类型")
-              
-              if 'name' in entry and isinstance(entry.get('name'), str):
-                  if not entry['name'].strip():
-                      entry_errors.append("name 字段不能为空")
-              
-              if 'avatar' in entry and isinstance(entry.get('avatar'), str):
-                  if not entry['avatar'].startswith('http'):
-                      entry_errors.append("avatar 应为有效的 URL (以 http/https 开头)")
-              
-              if 'website' in entry and entry.get('website'):
-                  if not isinstance(entry.get('website'), str):
-                      entry_errors.append("website 字段应为字符串类型")
-                  elif not entry['website'].startswith('http'):
-                      entry_errors.append("website 应为有效的 URL (以 http/https 开头)")
-              
-              if 'date' in entry and isinstance(entry.get('date'), str):
-                  import re
-                  if not re.match(r'^\d{4}-\d{2}-\d{2}$', entry['date']):
-                      entry_errors.append("date 格式应为 YYYY-MM-DD")
-              
-              if 'amount' in entry and isinstance(entry.get('amount'), str):
-                  if not entry['amount'].strip():
-                      entry_errors.append("amount 字段不能为空")
-              
-              if entry_errors:
-                  errors.append(f"条目 {i+1}:\n  " + "\n  ".join(entry_errors))
-          
-          with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
-              if errors:
-                  f.write("fields_valid=false\n")
-                  error_msg = "\n".join(errors)
-                  f.write(f"field_errors<<EOF\n{error_msg}\nEOF\n")
-                  print(f"Field validation errors:\n{error_msg}")
-              else:
-                  f.write("fields_valid=true\n")
-                  print("All fields are valid!")
-          EOF
+            - name: Check for new entries
+              id: check_new
+              if: steps.validate_json.outputs.json_valid == 'true'
+              run: |
+                  python3 << 'EOF'
+                  import json
 
-      - name: Check avatar accessibility
-        id: check_avatar
-        if: steps.validate_fields.outputs.fields_valid == 'true'
-        run: |
-          python3 << 'EOF'
-          import json
-          import subprocess
-          import os
-          
-          with open('new_entries.json', 'r') as f:
-              entries = json.load(f)
-          
-          errors = []
-          
-          for i, entry in enumerate(entries):
-              avatar = entry.get('avatar', '')
-              if avatar:
-                  print(f"Checking avatar for entry {i+1}: {avatar}")
-                  success = False
-                  for attempt in range(3):
-                      result = subprocess.run(
-                          ['curl', '-s', '-o', '/dev/null', '-w', '%{http_code}',
-                           '--connect-timeout', '15', '--max-time', '20', '-L',
-                           '-H', 'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-                           '-H', 'Accept: image/webp,image/apng,image/*,*/*;q=0.8',
-                           avatar],
-                          capture_output=True, text=True
-                      )
-                      http_code = result.stdout.strip()
-                      print(f"  Attempt {attempt+1}: HTTP {http_code}")
+                  with open('base_sponsors.json', 'r') as f:
+                      base = json.load(f)
+
+                  with open('data/sponsors.json', 'r') as f:
+                      new = json.load(f)
+
+                  base_urls = {item.get('website', '') for item in base}
+                  base_names = {item.get('name', '') for item in base}
+
+                  new_entries = []
+                  for item in new:
+                      if item.get('name', '') not in base_names or item.get('website', '') not in base_urls:
+                          new_entries.append(item)
+
+                  if new_entries:
+                      print(f"Found {len(new_entries)} new entry/entries")
+                      import os
+                      with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+                          f.write(f"has_new_entries=true\n")
+                          f.write(f"new_entries_count={len(new_entries)}\n")
+                      with open('new_entries.json', 'w') as f:
+                          json.dump(new_entries, f, indent=2)
+                  else:
+                      print("No new entries found")
+                      import os
+                      with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+                          f.write("has_new_entries=false\n")
+                  EOF
+
+            - name: Validate new entry fields
+              id: validate_fields
+              if: steps.check_new.outputs.has_new_entries == 'true'
+              run: |
+                  python3 << 'EOF'
+                  import json
+                  import os
+
+                  with open('new_entries.json', 'r') as f:
+                      entries = json.load(f)
+
+                  errors = []
+                  required_fields = ['name', 'avatar', 'date', 'amount']
+
+                  for i, entry in enumerate(entries):
+                      entry_errors = []
                       
-                      if http_code.isdigit() and 200 <= int(http_code) < 400:
-                          success = True
-                          break
-                  
-                  if not success:
-                      errors.append(f"条目 {i+1}: 头像地址无法访问 ({avatar})")
-          
-          with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
-              if errors:
-                  f.write("avatar_accessible=false\n")
-                  error_msg = "\n".join(errors)
-                  f.write(f"avatar_errors<<EOF\n{error_msg}\nEOF\n")
-                  print(f"Avatar check errors:\n{error_msg}")
-              else:
-                  f.write("avatar_accessible=true\n")
-                  print("All avatars are accessible!")
-          EOF
-
-      - name: Check website accessibility
-        id: check_website
-        if: steps.validate_fields.outputs.fields_valid == 'true'
-        run: |
-          python3 << 'EOF'
-          import json
-          import subprocess
-          import os
-          
-          with open('new_entries.json', 'r') as f:
-              entries = json.load(f)
-          
-          errors = []
-          
-          for i, entry in enumerate(entries):
-              website = entry.get('website', '')
-              if website:
-                  print(f"Checking website for entry {i+1}: {website}")
-                  success = False
-                  for attempt in range(3):
-                      result = subprocess.run(
-                          ['curl', '-s', '-o', '/dev/null', '-w', '%{http_code}',
-                           '--connect-timeout', '15', '--max-time', '20', '-L',
-                           '-H', 'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-                           '-H', 'Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-                           website],
-                          capture_output=True, text=True
-                      )
-                      http_code = result.stdout.strip()
-                      print(f"  Attempt {attempt+1}: HTTP {http_code}")
+                      for field in required_fields:
+                          if field not in entry or not entry[field]:
+                              entry_errors.append(f"缺少必填字段: {field}")
+                          elif not isinstance(entry[field], str):
+                              entry_errors.append(f"字段 {field} 应为字符串类型")
                       
-                      if http_code.isdigit() and 200 <= int(http_code) < 400:
-                          success = True
-                          break
-                  
-                  if not success:
-                      errors.append(f"条目 {i+1}: 网站地址无法访问 ({website})")
-          
-          with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
-              if errors:
-                  f.write("website_accessible=false\n")
-                  error_msg = "\n".join(errors)
-                  f.write(f"website_errors<<EOF\n{error_msg}\nEOF\n")
-                  print(f"Website check errors:\n{error_msg}")
-              else:
-                  f.write("website_accessible=true\n")
-                  print("All websites are accessible!")
-          EOF
+                      if 'name' in entry and isinstance(entry.get('name'), str):
+                          if not entry['name'].strip():
+                              entry_errors.append("name 字段不能为空")
+                      
+                      if 'avatar' in entry and isinstance(entry.get('avatar'), str):
+                          if not entry['avatar'].startswith('http'):
+                              entry_errors.append("avatar 应为有效的 URL (以 http/https 开头)")
+                      
+                      if 'website' in entry and entry.get('website'):
+                          if not isinstance(entry.get('website'), str):
+                              entry_errors.append("website 字段应为字符串类型")
+                          elif not entry['website'].startswith('http'):
+                              entry_errors.append("website 应为有效的 URL (以 http/https 开头)")
+                      
+                      if 'date' in entry and isinstance(entry.get('date'), str):
+                          import re
+                          if not re.match(r'^\d{4}-\d{2}-\d{2}$', entry['date']):
+                              entry_errors.append("date 格式应为 YYYY-MM-DD")
+                      
+                      if 'amount' in entry and isinstance(entry.get('amount'), str):
+                          if not entry['amount'].strip():
+                              entry_errors.append("amount 字段不能为空")
+                      
+                      if entry_errors:
+                          errors.append(f"条目 {i+1}:\n  " + "\n  ".join(entry_errors))
 
-      - name: Final validation
-        id: final
-        run: |
-          if [ "${{ steps.validate_json.outputs.json_valid }}" != "true" ]; then
-            echo "validation_passed=false" >> $GITHUB_OUTPUT
-            echo "final_error=${{ steps.validate_json.outputs.error_message }}" >> $GITHUB_OUTPUT
-          elif [ "${{ steps.check_new.outputs.has_new_entries }}" != "true" ]; then
-            echo "validation_passed=true" >> $GITHUB_OUTPUT
-            echo "No new entries to validate"
-          elif [ "${{ steps.validate_fields.outputs.fields_valid }}" != "true" ]; then
-            echo "validation_passed=false" >> $GITHUB_OUTPUT
-            echo "final_error<<EOF\n${{ steps.validate_fields.outputs.field_errors }}\nEOF" >> $GITHUB_OUTPUT
-          elif [ "${{ steps.check_avatar.outputs.avatar_accessible }}" == "false" ]; then
-            echo "validation_passed=false" >> $GITHUB_OUTPUT
-            echo "final_error<<EOF\n${{ steps.check_avatar.outputs.avatar_errors }}\nEOF" >> $GITHUB_OUTPUT
-          elif [ "${{ steps.check_website.outputs.website_accessible }}" == "false" ]; then
-            echo "validation_passed=false" >> $GITHUB_OUTPUT
-            echo "final_error<<EOF\n${{ steps.check_website.outputs.website_errors }}\nEOF" >> $GITHUB_OUTPUT
-          else
-            echo "validation_passed=true" >> $GITHUB_OUTPUT
-            echo "All validations passed!"
-          fi
+                  with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+                      if errors:
+                          f.write("fields_valid=false\n")
+                          error_msg = "\n".join(errors)
+                          f.write(f"field_errors<<EOF\n{error_msg}\nEOF\n")
+                          print(f"Field validation errors:\n{error_msg}")
+                      else:
+                          f.write("fields_valid=true\n")
+                          print("All fields are valid!")
+                  EOF
 
-      - name: Comment on PR - Success
-        if: steps.final.outputs.validation_passed == 'true'
-        uses: actions/github-script@v7
-        with:
-          script: |
-            await github.rest.issues.createComment({
-              issue_number: context.issue.number,
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              body: `✅ **赞助数据验证通过！**\n\n所有检查均已通过，可以合并此 PR。`
-            });
+            - name: Check avatar accessibility
+              id: check_avatar
+              if: steps.validate_fields.outputs.fields_valid == 'true'
+              run: |
+                  python3 << 'EOF'
+                  import json
+                  import subprocess
+                  import os
 
-      - name: Comment on PR - Failure
-        if: steps.final.outputs.validation_passed != 'true'
-        uses: actions/github-script@v7
-        env:
-          ERROR: ${{ steps.final.outputs.final_error }}
-        with:
-          script: |
-            const error = process.env.ERROR || '未知错误';
-            
-            await github.rest.issues.createComment({
-              issue_number: context.issue.number,
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              body: `❌ **赞助数据验证失败！**\n\n**问题详情：**\n\`\`\`\n${error}\n\`\`\`\n\n请修复上述问题后重新提交。`
-            });
+                  with open('new_entries.json', 'r') as f:
+                      entries = json.load(f)
 
-      - name: Fail the workflow
-        if: steps.final.outputs.validation_passed != 'true'
-        run: |
-          echo "Validation failed, see comments for details"
-          exit 1
+                  errors = []
+
+                  for i, entry in enumerate(entries):
+                      avatar = entry.get('avatar', '')
+                      if avatar:
+                          print(f"Checking avatar for entry {i+1}: {avatar}")
+                          success = False
+                          for attempt in range(3):
+                              result = subprocess.run(
+                                  ['curl', '-s', '-o', '/dev/null', '-w', '%{http_code}',
+                                   '--connect-timeout', '15', '--max-time', '20', '-L',
+                                   '-H', 'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                                   '-H', 'Accept: image/webp,image/apng,image/*,*/*;q=0.8',
+                                   avatar],
+                                  capture_output=True, text=True
+                              )
+                              http_code = result.stdout.strip()
+                              print(f"  Attempt {attempt+1}: HTTP {http_code}")
+                              
+                              if http_code.isdigit() and 200 <= int(http_code) < 400:
+                                  success = True
+                                  break
+                          
+                          if not success:
+                              errors.append(f"条目 {i+1}: 头像地址无法访问 ({avatar})")
+
+                  with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+                      if errors:
+                          f.write("avatar_accessible=false\n")
+                          error_msg = "\n".join(errors)
+                          f.write(f"avatar_errors<<EOF\n{error_msg}\nEOF\n")
+                          print(f"Avatar check errors:\n{error_msg}")
+                      else:
+                          f.write("avatar_accessible=true\n")
+                          print("All avatars are accessible!")
+                  EOF
+
+            - name: Check website accessibility
+              id: check_website
+              if: steps.validate_fields.outputs.fields_valid == 'true'
+              run: |
+                  python3 << 'EOF'
+                  import json
+                  import subprocess
+                  import os
+
+                  with open('new_entries.json', 'r') as f:
+                      entries = json.load(f)
+
+                  errors = []
+
+                  for i, entry in enumerate(entries):
+                      website = entry.get('website', '')
+                      if website:
+                          print(f"Checking website for entry {i+1}: {website}")
+                          success = False
+                          for attempt in range(3):
+                              result = subprocess.run(
+                                  ['curl', '-s', '-o', '/dev/null', '-w', '%{http_code}',
+                                   '--connect-timeout', '15', '--max-time', '20', '-L',
+                                   '-H', 'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                                   '-H', 'Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                                   website],
+                                  capture_output=True, text=True
+                              )
+                              http_code = result.stdout.strip()
+                              print(f"  Attempt {attempt+1}: HTTP {http_code}")
+                              
+                              if http_code.isdigit() and 200 <= int(http_code) < 400:
+                                  success = True
+                                  break
+                          
+                          if not success:
+                              errors.append(f"条目 {i+1}: 网站地址无法访问 ({website})")
+
+                  with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+                      if errors:
+                          f.write("website_accessible=false\n")
+                          error_msg = "\n".join(errors)
+                          f.write(f"website_errors<<EOF\n{error_msg}\nEOF\n")
+                          print(f"Website check errors:\n{error_msg}")
+                      else:
+                          f.write("website_accessible=true\n")
+                          print("All websites are accessible!")
+                  EOF
+
+            - name: Final validation
+              id: final
+              run: |
+                  if [ "${{ steps.validate_json.outputs.json_valid }}" != "true" ]; then
+                    echo "validation_passed=false" >> $GITHUB_OUTPUT
+                    echo "final_error=${{ steps.validate_json.outputs.error_message }}" >> $GITHUB_OUTPUT
+                  elif [ "${{ steps.check_new.outputs.has_new_entries }}" != "true" ]; then
+                    echo "validation_passed=true" >> $GITHUB_OUTPUT
+                    echo "No new entries to validate"
+                  elif [ "${{ steps.validate_fields.outputs.fields_valid }}" != "true" ]; then
+                    echo "validation_passed=false" >> $GITHUB_OUTPUT
+                    echo "final_error<<EOF\n${{ steps.validate_fields.outputs.field_errors }}\nEOF" >> $GITHUB_OUTPUT
+                  elif [ "${{ steps.check_avatar.outputs.avatar_accessible }}" == "false" ]; then
+                    echo "validation_passed=false" >> $GITHUB_OUTPUT
+                    echo "final_error<<EOF\n${{ steps.check_avatar.outputs.avatar_errors }}\nEOF" >> $GITHUB_OUTPUT
+                  elif [ "${{ steps.check_website.outputs.website_accessible }}" == "false" ]; then
+                    echo "validation_passed=false" >> $GITHUB_OUTPUT
+                    echo "final_error<<EOF\n${{ steps.check_website.outputs.website_errors }}\nEOF" >> $GITHUB_OUTPUT
+                  else
+                    echo "validation_passed=true" >> $GITHUB_OUTPUT
+                    echo "All validations passed!"
+                  fi
+
+            - name: Comment on PR - Success
+              if: steps.final.outputs.validation_passed == 'true'
+              uses: actions/github-script@v7
+              with:
+                  github-token: ${{ secrets.GITHUB_TOKEN }}
+                  script: |
+                      await github.rest.issues.createComment({
+                        issue_number: context.issue.number,
+                        owner: context.repo.owner,
+                        repo: context.repo.repo,
+                        body: `✅ **赞助数据验证通过！**\n\n所有检查均已通过，可以合并此 PR。`
+                      });
+
+            - name: Comment on PR - Failure
+              if: steps.final.outputs.validation_passed != 'true'
+              uses: actions/github-script@v7
+              env:
+                  ERROR: ${{ steps.final.outputs.final_error }}
+              with:
+                  github-token: ${{ secrets.GITHUB_TOKEN }}
+                  script: |
+                      const error = process.env.ERROR || '未知错误';
+
+                      await github.rest.issues.createComment({
+                        issue_number: context.issue.number,
+                        owner: context.repo.owner,
+                        repo: context.repo.repo,
+                        body: `❌ **赞助数据验证失败！**\n\n**问题详情：**\n\`\`\`\n${error}\n\`\`\`\n\n请修复上述问题后重新提交。`
+                      });
+
+            - name: Fail the workflow
+              if: steps.final.outputs.validation_passed != 'true'
+              run: |
+                  echo "Validation failed, see comments for details"
+                  exit 1
