@@ -1,0 +1,93 @@
+name: 导出友链 JSON
+
+on:
+  schedule:
+    - cron: '0 12 * * *'
+  workflow_dispatch:
+
+jobs:
+  export-friends:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Create public directory
+        run: mkdir -p public
+
+      - name: Export friends to JSON
+        run: |
+          node << 'EOF'
+          const fs = require('fs');
+
+          const content = fs.readFileSync('data/friends.ts', 'utf-8');
+
+          const match = content.match(/export const FRIEND_LINKS:\s*FriendLink\[\]\s*=\s*\[([\s\S]*?)\];/);
+          if (!match) {
+            throw new Error('无法解析 friends.ts 文件');
+          }
+
+          const arrayContent = match[1];
+          const friends = [];
+
+          const blocks = arrayContent.split(/\},\s*\{/g);
+
+          for (let i = 0; i < blocks.length; i++) {
+            let block = blocks[i];
+
+            if (i === 0) {
+              block = block.replace(/^\s*\{/, '');
+            }
+            if (i === blocks.length - 1) {
+              block = block.replace(/\}\s*$/, '');
+            }
+
+            const friend = {};
+
+            const nameMatch = block.match(/name:\s*"([^"]+)"/);
+            if (nameMatch) friend.name = nameMatch[1];
+
+            const descMatch = block.match(/description:\s*"([^"]+)"/);
+            if (descMatch) friend.description = descMatch[1];
+
+            const urlMatch = block.match(/url:\s*"([^"]+)"/);
+            if (urlMatch) friend.url = urlMatch[1];
+
+            const avatarMatch = block.match(/avatar:\s*"([^"]+)"/);
+            if (avatarMatch) friend.avatar = avatarMatch[1];
+
+            const addDateMatch = block.match(/addDate:\s*"([^"]*)"/);
+            if (addDateMatch && addDateMatch[1]) friend.addDate = addDateMatch[1];
+
+            if (/recommended:\s*true/.test(block)) friend.recommended = true;
+
+            if (/disconnected:\s*true/.test(block)) friend.disconnected = true;
+
+            if (friend.name && friend.url && !friend.disconnected) {
+              friends.push(friend);
+            }
+          }
+
+          fs.writeFileSync('public/friends.json', JSON.stringify(friends, null, 2));
+          console.log(`已导出 ${friends.length} 个友链到 public/friends.json`);
+          EOF
+
+      - name: Check for changes
+        id: changes
+        run: |
+          if git diff --quiet public/friends.json; then
+            echo "has_changes=false" >> $GITHUB_OUTPUT
+          else
+            echo "has_changes=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Commit changes
+        if: steps.changes.outputs.has_changes == 'true'
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          git add public/friends.json
+          git commit -m "chore: 更新友链 JSON 数据"
+          git push
